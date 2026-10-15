@@ -199,9 +199,8 @@ export class ProviderManager {
     // Section 1 & 7: OSM remains available as fallback and secondary source.
     // Only invoke OSM if Google failed, returned zero, or returned insufficient candidates
     const isOsmEnabled = health.osm.configured && health.osm.enabled;
-    const isIndia = !params.country || params.country === 'India';
     const googleFailed = ['FAILED', 'DISABLED', 'NOT_CONFIGURED', 'PROVIDER_NOT_CONFIGURED', 'PROVIDER_FAILURE', 'AUTH_FAILED', 'REQUEST_FAILED', 'RATE_LIMITED', 'NO_RESULTS'].includes(result.providers.googlePlaces.status);
-    const needOsm = isIndia && (googleFailed || result.businesses.length < requestedLimit * 1.5);
+    const needOsm = googleFailed || result.businesses.length < requestedLimit * 1.5;
 
     if (isOsmEnabled && needOsm) {
       onProgress?.('Executing OpenStreetMap Overpass as Secondary / Fallback discovery source...');

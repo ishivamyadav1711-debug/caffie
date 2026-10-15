@@ -40,9 +40,9 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
     const releaseSemaphore = await semaphores.osm.acquire();
 
     try {
-      // 2. Resolve bounding box if not provided
+      // 2. Resolve bounding box if not provided (India pre-indexed spatial bounds)
       let bbox: any = params.bbox;
-      if (!bbox) {
+      if (!bbox && (!params.country || params.country === 'India')) {
         bbox = await resolveIndiaLocation(params.state, params.city);
       }
 
