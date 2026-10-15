@@ -28,6 +28,18 @@ export type ContactVerificationStatus =
   | 'VOIP'
   | 'UNAVAILABLE';    // Provider not configured or failed
 
+// ─── Provider Operational Status ────────────────────────────
+
+export type ProviderOperationalStatus =
+  | 'READY'
+  | 'NOT_CONFIGURED'
+  | 'RATE_LIMITED'
+  | 'TIMEOUT'
+  | 'AUTH_FAILED'
+  | 'PROVIDER_ERROR'
+  | 'QUOTA_EXCEEDED'
+  | 'UNAVAILABLE';
+
 // ─── Verification Level ─────────────────────────────────────
 
 export type VerificationLevel =
@@ -160,7 +172,8 @@ export type ExtendedContactFilterType =
   | 'NO_CONTACT'
   | 'VERIFIED_PHONE'
   | 'VERIFIED_EMAIL'
-  | 'VERIFIED_PHONE_OR_EMAIL';
+  | 'VERIFIED_PHONE_OR_EMAIL'
+  | 'VERIFIED_PHONE_AND_EMAIL';
 
 /**
  * Normalizes frontend contact filter strings to canonical enum values.
@@ -178,6 +191,7 @@ export function normalizeContactFilter(raw?: string): ExtendedContactFilterType 
   if (norm === 'VERIFIED_PHONE') return 'VERIFIED_PHONE';
   if (norm === 'VERIFIED_EMAIL') return 'VERIFIED_EMAIL';
   if (norm === 'VERIFIED_PHONE_OR_EMAIL') return 'VERIFIED_PHONE_OR_EMAIL';
+  if (norm === 'VERIFIED_PHONE_AND_EMAIL') return 'VERIFIED_PHONE_AND_EMAIL';
 
   return 'ALL_CONTACTS';
 }
@@ -226,6 +240,11 @@ export function evaluateContactFilter(
 
     case 'VERIFIED_PHONE_OR_EMAIL':
       return quality.hasVerifiedContact
+        ? { match: true }
+        : { match: false, reason: 'CONTACT_FILTER_MISMATCH' };
+
+    case 'VERIFIED_PHONE_AND_EMAIL':
+      return quality.hasVerifiedPhone && quality.hasVerifiedEmail
         ? { match: true }
         : { match: false, reason: 'CONTACT_FILTER_MISMATCH' };
 

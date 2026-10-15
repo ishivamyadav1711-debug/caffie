@@ -66,8 +66,25 @@ export class OutreachIdempotencyGuard {
 
       return { hasDuplicate: false };
     } catch (err: any) {
-      console.warn('[OutreachIdempotencyGuard] Duplicate check warning:', err.message);
       return { hasDuplicate: false };
     }
+  }
+
+  private static inFlightLocks = new Set<string>();
+
+  /**
+   * Acquire an in-memory lock for a sending operation (prevents double-clicking send).
+   */
+  static acquireLock(key: string): boolean {
+    if (this.inFlightLocks.has(key)) return false;
+    this.inFlightLocks.add(key);
+    return true;
+  }
+
+  /**
+   * Release an acquired in-memory lock.
+   */
+  static releaseLock(key: string): void {
+    this.inFlightLocks.delete(key);
   }
 }

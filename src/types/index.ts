@@ -214,24 +214,55 @@ export interface RejectedCandidateItem {
   rejectionDetails?: string;
 }
 
+export type ReviewSortOption =
+  | 'default'
+  | 'most_reviews'
+  | 'highest_rating'
+  | 'highest_positive_signal'
+  | 'needs_attention';
+
 export interface SearchRequestPayload {
-  country: 'India';
+  country?: 'India' | 'USA' | 'Canada' | string;
   state: string;
   city?: string;
   industry: string;
   contactFilter?: ContactFilter;
   websiteFilter?: WebsiteFilter;
   limit: number;
+  minRating?: number;
+  minReviews?: number;
+  excludePerfectRating?: boolean;
+  requirePositiveReviewEvidence?: boolean;
+  reviewSort?: ReviewSortOption;
 }
 
 export type LeadStatus = 'New' | 'In Review' | 'Contacted' | 'Qualified' | 'Unresponsive';
 
+export interface LeadReview {
+  authorName?: string;
+  rating: number;
+  text?: string;
+  publishTime?: string;
+}
+
 export interface Lead {
   id: string;
-  source: string; // e.g. "openstreetmap"
+  source: string; // e.g. "google_places", "openstreetmap"
   sources?: string[];
   sourceEvidence?: any[];
-  sourceId?: string; // e.g. "osm:node:12345"
+  sourceId?: string; // e.g. "ChIJN1t_tDeuEmsRUsoyG83frY4"
+  googlePlaceId?: string;
+  rating?: number | null;
+  reviewCount?: number | null;
+  userRatingCount?: number | null;
+  positiveReviewDataAvailable?: boolean;
+  positiveReviewCount?: number | null;
+  negativeReviewCount?: number | null;
+  neutralReviewCount?: number | null;
+  positiveReviewRatio?: number | null;
+  reviews?: LeadReview[];
+  commercialMilestones?: any[];
+  firstKnownGmvDate?: string | null;
   osmType?: 'node' | 'way' | 'relation';
   osmId?: number | string;
   placeId?: string;
@@ -352,6 +383,8 @@ export type NavTab =
   | 'campaigns' 
   | 'ai-messages' 
   | 'demo-websites' 
+  | 'outreach-history'
+  | 'senders'
   | 'settings' 
   | 'help';
 

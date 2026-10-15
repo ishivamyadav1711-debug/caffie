@@ -23,6 +23,7 @@ import {
 
 export interface PhoneVerificationResult {
   rawPhone: string;
+  normalizedPhone?: string;
   normalizedE164?: string;
   nationalFormat?: string;
   internationalFormat?: string;
@@ -34,6 +35,11 @@ export interface PhoneVerificationResult {
   verificationLevel: VerificationLevel;
   confidence: number;
   provider: string;
+  providerStatus?: 'READY' | 'NOT_CONFIGURED' | 'RATE_LIMITED' | 'TIMEOUT' | 'AUTH_FAILED' | 'PROVIDER_ERROR' | 'QUOTA_EXCEEDED' | 'UNAVAILABLE';
+  providerRequestId?: string;
+  errorCode?: string;
+  cached?: boolean;
+  expiresAt?: string;
   details?: Record<string, any>;
 }
 
@@ -155,10 +161,10 @@ export class TwilioLookupProvider implements PhoneVerificationProvider {
   readonly name = 'twilio_lookup';
 
   isConfigured(): boolean {
-    return Boolean(
-      process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN
-    );
+    const enabled = process.env.CONTACT_PHONE_EXTERNAL_VERIFICATION !== 'false';
+    const hasSid = Boolean(process.env.TWILIO_ACCOUNT_SID?.trim());
+    const hasToken = Boolean(process.env.TWILIO_AUTH_TOKEN?.trim());
+    return enabled && hasSid && hasToken;
   }
 
   async verifyPhone(phone: string, defaultCountry: string = 'IN'): Promise<PhoneVerificationResult> {
@@ -173,7 +179,8 @@ export class TwilioLookupProvider implements PhoneVerificationProvider {
         verificationLevel: 'SYNTAX',
         confidence: 0,
         provider: this.name,
-        details: { reason: 'Twilio Lookup not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing)' },
+        providerStatus: 'NOT_CONFIGURED',
+        details: { reason: 'Twilio Lookup not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing or disabled)' },
       };
     }
 
@@ -185,87 +192,180 @@ export class TwilioLookupProvider implements PhoneVerificationProvider {
       return {
         ...syntaxResult,
         provider: this.name,
+        providerStatus: 'READY',
       };
     }
 
     const e164 = syntaxResult.normalizedE164;
-    const sid = process.env.TWILIO_ACCOUNT_SID!;
-    const token = process.env.TWILIO_AUTH_TOKEN!;
 
-    try {
-      const url = `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(e164)}?Fields=line_type_intelligence`;
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64'),
-        },
-        signal: AbortSignal.timeout(5000),
-      });
-
-      if (!response.ok) {
-        // Twilio returned an error — report UNAVAILABLE, not VERIFIED
-        return {
-          ...syntaxResult,
-          verificationLevel: 'SYNTAX',
-          provider: this.name,
-          details: {
-            ...syntaxResult.details,
-            twilioError: `HTTP ${response.status}`,
-          },
-        };
-      }
-
-      const data = await response.json();
-      let lineType: PhoneLineType = syntaxResult.lineType;
-      let carrier: string | undefined;
-
-      if (data.line_type_intelligence) {
-        const lti = data.line_type_intelligence;
-        if (lti.type === 'mobile') lineType = 'MOBILE';
-        else if (lti.type === 'landline') lineType = 'LANDLINE';
-        else if (lti.type === 'voip') lineType = 'VOIP';
-        carrier = lti.carrier_name || undefined;
-      }
-
-      let verificationStatus: ContactVerificationStatus = 'VERIFIED';
-      if (lineType === 'MOBILE') verificationStatus = 'MOBILE';
-      else if (lineType === 'LANDLINE') verificationStatus = 'LANDLINE';
-      else if (lineType === 'VOIP') verificationStatus = 'VOIP';
-
+    // Check verification cache before paying API cost
+    const { contactVerificationCache } = await import('./ContactVerificationCache');
+    const cached = await contactVerificationCache.get('PHONE', e164, this.name);
+    if (cached) {
       return {
         rawPhone: raw,
         normalizedE164: e164,
         nationalFormat: syntaxResult.nationalFormat,
         internationalFormat: syntaxResult.internationalFormat,
         countryCode: syntaxResult.countryCode,
-        isValid: true,
-        lineType,
-        carrier,
-        verificationStatus,
-        verificationLevel: 'CARRIER',
-        confidence: 0.95,
+        isValid: cached.status === 'VERIFIED' || cached.status === 'MOBILE' || cached.status === 'LANDLINE' || cached.status === 'VOIP',
+        lineType: (cached.lineType as PhoneLineType) || syntaxResult.lineType,
+        carrier: cached.carrier,
+        verificationStatus: cached.status as ContactVerificationStatus,
+        verificationLevel: cached.level as VerificationLevel,
+        confidence: cached.confidence,
         provider: this.name,
+        providerStatus: 'READY',
+        cached: true,
         details: {
           ...syntaxResult.details,
-          twilioResponse: {
-            valid: data.valid,
-            callingCountryCode: data.calling_country_code,
-            countryCode: data.country_code,
-            lineType: data.line_type_intelligence?.type,
-            carrier: carrier,
-          },
-        },
-      };
-    } catch (err: any) {
-      // Network failure — return syntax result with UNAVAILABLE for carrier level
-      return {
-        ...syntaxResult,
-        provider: this.name,
-        details: {
-          ...syntaxResult.details,
-          twilioError: err.message || 'Twilio Lookup request failed',
+          fromCache: true,
+          verifiedAt: cached.verifiedAt,
+          expiresAt: cached.expiresAt,
+          details: cached.details,
         },
       };
     }
+
+    const sid = process.env.TWILIO_ACCOUNT_SID!.trim();
+    const token = process.env.TWILIO_AUTH_TOKEN!.trim();
+
+    // Bounded fetch with timeout and retry
+    let lastError: any = null;
+    let providerStatus: 'READY' | 'RATE_LIMITED' | 'TIMEOUT' | 'AUTH_FAILED' | 'PROVIDER_ERROR' = 'READY';
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const url = `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(e164)}?Fields=line_type_intelligence`;
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64'),
+          },
+          signal: AbortSignal.timeout(4000),
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          providerStatus = 'AUTH_FAILED';
+          return {
+            ...syntaxResult,
+            verificationStatus: 'UNAVAILABLE',
+            verificationLevel: 'SYNTAX',
+            provider: this.name,
+            providerStatus,
+            errorCode: 'INVALID_CREDENTIALS',
+            details: { ...syntaxResult.details, twilioError: `Authentication failed (HTTP ${response.status})` },
+          };
+        }
+
+        if (response.status === 429) {
+          providerStatus = 'RATE_LIMITED';
+          if (attempt === 1) {
+            await new Promise(r => setTimeout(r, 400));
+            continue;
+          }
+          return {
+            ...syntaxResult,
+            verificationStatus: 'UNAVAILABLE',
+            verificationLevel: 'SYNTAX',
+            provider: this.name,
+            providerStatus,
+            errorCode: 'RATE_LIMITED',
+            details: { ...syntaxResult.details, twilioError: 'Twilio Lookup rate limit exceeded (HTTP 429)' },
+          };
+        }
+
+        if (!response.ok) {
+          providerStatus = 'PROVIDER_ERROR';
+          return {
+            ...syntaxResult,
+            verificationStatus: 'UNAVAILABLE',
+            verificationLevel: 'SYNTAX',
+            provider: this.name,
+            providerStatus,
+            errorCode: `HTTP_${response.status}`,
+            details: { ...syntaxResult.details, twilioError: `HTTP ${response.status}` },
+          };
+        }
+
+        const data = await response.json();
+        let lineType: PhoneLineType = syntaxResult.lineType;
+        let carrier: string | undefined;
+
+        if (data.line_type_intelligence) {
+          const lti = data.line_type_intelligence;
+          if (lti.type === 'mobile') lineType = 'MOBILE';
+          else if (lti.type === 'landline') lineType = 'LANDLINE';
+          else if (lti.type === 'voip') lineType = 'VOIP';
+          carrier = lti.carrier_name || undefined;
+        }
+
+        let verificationStatus: ContactVerificationStatus = 'VERIFIED';
+        if (lineType === 'MOBILE') verificationStatus = 'MOBILE';
+        else if (lineType === 'LANDLINE') verificationStatus = 'LANDLINE';
+        else if (lineType === 'VOIP') verificationStatus = 'VOIP';
+
+        const result: PhoneVerificationResult = {
+          rawPhone: raw,
+          normalizedE164: e164,
+          nationalFormat: syntaxResult.nationalFormat,
+          internationalFormat: syntaxResult.internationalFormat,
+          countryCode: syntaxResult.countryCode,
+          isValid: true,
+          lineType,
+          carrier,
+          verificationStatus,
+          verificationLevel: 'CARRIER',
+          confidence: 0.95,
+          provider: this.name,
+          providerStatus: 'READY',
+          details: {
+            ...syntaxResult.details,
+            twilioResponse: {
+              valid: data.valid,
+              callingCountryCode: data.calling_country_code,
+              countryCode: data.country_code,
+              lineType: data.line_type_intelligence?.type,
+              carrier,
+            },
+          },
+        };
+
+        // Cache successful response
+        await contactVerificationCache.set('PHONE', e164, this.name, {
+          status: verificationStatus,
+          level: 'CARRIER',
+          providerStatus: 'READY',
+          lineType,
+          carrier,
+          confidence: 0.95,
+          evidence: `Twilio Lookup verified carrier: ${carrier || 'Valid'} (${lineType})`,
+          details: result.details,
+        });
+
+        return result;
+      } catch (err: any) {
+        lastError = err;
+        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+          providerStatus = 'TIMEOUT';
+        }
+        if (attempt === 1) {
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+    }
+
+    return {
+      ...syntaxResult,
+      verificationStatus: 'UNAVAILABLE',
+      verificationLevel: 'SYNTAX',
+      provider: this.name,
+      providerStatus: providerStatus === 'TIMEOUT' ? 'TIMEOUT' : 'PROVIDER_ERROR',
+      errorCode: providerStatus,
+      details: {
+        ...syntaxResult.details,
+        twilioError: lastError?.message || 'Twilio Lookup request failed',
+      },
+    };
   }
 }
 

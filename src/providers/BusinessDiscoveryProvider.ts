@@ -33,6 +33,21 @@ export interface RawDiscoveredBusiness {
   osmId?: number;
   categoryTag?: string;
   types?: string[];
+  googlePlaceId?: string;
+  rating?: number | null;
+  userRatingCount?: number | null;
+  businessStatus?: string;
+  positiveReviewDataAvailable?: boolean;
+  positiveReviewCount?: number | null;
+  negativeReviewCount?: number | null;
+  neutralReviewCount?: number | null;
+  positiveReviewRatio?: number | null;
+  reviews?: Array<{
+    authorName?: string;
+    rating: number;
+    text?: string;
+    publishTime?: string;
+  }>;
   rawTags: Record<string, any>;
   sourceEvidence?: {
     source: string;

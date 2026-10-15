@@ -12,7 +12,9 @@ import {
   Settings, 
   ChevronsLeft,
   ChevronsRight,
-  Compass
+  Compass,
+  Mail,
+  Server
 } from 'lucide-react';
 import { NavTab } from '@/types';
 
@@ -53,13 +55,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: 'INTELLIGENCE',
       items: [
         { id: 'website-audit', label: 'Website Audit', icon: Globe2 },
-        { id: 'ai-messages', label: 'AI Outreach', icon: Sparkles },
         { id: 'demo-websites', label: 'Website Demos', icon: MonitorPlay },
+        { id: 'ai-messages', label: 'AI Outreach', icon: Sparkles },
       ],
     },
     {
-      title: 'MANAGE',
+      title: 'OUTREACH & SENDERS',
       items: [
+        { id: 'outreach-history', label: 'Outreach Tracking', icon: Mail },
+        { id: 'senders', label: 'Sender Mailboxes', icon: Server },
         { id: 'campaigns', label: 'Campaigns', icon: Send },
         { id: 'settings', label: 'Settings', icon: Settings },
       ],

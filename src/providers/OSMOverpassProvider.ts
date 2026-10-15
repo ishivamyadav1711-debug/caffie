@@ -40,14 +40,14 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
     const releaseSemaphore = await semaphores.osm.acquire();
 
     try {
-      // 2. Resolve bounding box if not provided
+      // 2. Resolve bounding box if not provided (India pre-indexed spatial bounds)
       let bbox: any = params.bbox;
-      if (!bbox) {
+      if (!bbox && (!params.country || params.country === 'India')) {
         bbox = await resolveIndiaLocation(params.state, params.city);
       }
 
-      // 3. Circuit breaker + strict timeout
-      const effectiveTimeout = Math.max(timeouts.osmFastMs || 4000, 4000);
+      // 3. Circuit breaker + bounded timeout (aligned with ProviderManager 10s budget)
+      const effectiveTimeout = Math.max(timeouts.osmFastMs || 8000, 8000);
       const discovery = await osmCircuitBreaker.execute(async () => {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => {

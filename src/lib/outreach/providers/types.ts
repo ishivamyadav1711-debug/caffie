@@ -36,6 +36,8 @@ export interface SendResult {
   success: boolean;
   provider: string;
   providerMessageId?: string;
+  gmailMessageId?: string;
+  gmailThreadId?: string;
   status: 'SENT' | 'QUEUED' | 'FAILED';
   recipient: string;
   channel: 'EMAIL' | 'SMS' | 'WHATSAPP';

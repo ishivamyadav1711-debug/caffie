@@ -26,7 +26,7 @@ export class PipelineOrchestrator {
    * Executes the 13-stage LeadPilot pipeline with full persistence and error isolation.
    */
   async executePipeline(criteria: {
-    country: 'India';
+    country?: string;
     state: string;
     city?: string;
     industry: string;
@@ -63,7 +63,7 @@ export class PipelineOrchestrator {
         industry: criteria.industry,
         state: criteria.state,
         city: criteria.city,
-        country: criteria.country,
+        country: criteria.country || 'India',
         limit: criteria.limit,
       });
 

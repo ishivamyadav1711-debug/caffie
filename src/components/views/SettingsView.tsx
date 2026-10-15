@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Loader2
 } from 'lucide-react';
+import { SenderAccountsManager } from '@/components/outreach/SenderAccountsManager';
 
 interface SettingsViewProps {
   onShowToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
@@ -222,6 +223,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onShowToast }) => {
                   <p className="text-[11.5px] text-slate-600">
                     Direct business messaging via official Graph API v20.0 endpoints. Configure <code className="px-1 py-0.5 rounded bg-slate-200 font-mono text-[11px]">WHATSAPP_API_TOKEN</code> and <code className="px-1 py-0.5 rounded bg-slate-200 font-mono text-[11px]">WHATSAPP_PHONE_NUMBER_ID</code> in <code className="font-mono text-[11px]">.env</code> to activate.
                   </p>
+                </div>
+
+                {/* Company Sender Mailboxes Manager */}
+                <div className="pt-4 border-t border-slate-200">
+                  <SenderAccountsManager />
                 </div>
               </div>
             )}

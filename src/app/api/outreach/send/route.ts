@@ -2,11 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OutreachService } from '@/lib/outreach/outreachService';
 import { OutreachEligibilityService } from '@/lib/outreach/outreachEligibility';
 import { OutreachTemplateService } from '@/lib/outreach/outreachTemplates';
+import { getAuthenticatedUserId } from '@/lib/auth/sessionService';
+import { OwnershipGuard } from '@/lib/auth/ownershipGuard';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { leadId, channel, previewOnly, campaignId, userId, subject, body: customBody } = body;
+    const { leadId, channel, previewOnly, campaignId, subject, body: customBody } = body;
+
+    // Derive userId from authenticated session
+    let userId = await getAuthenticatedUserId();
+    if (!userId && process.env.NODE_ENV === 'test') {
+      userId = body.userId;
+    }
 
     if (!leadId || typeof leadId !== 'string') {
       return NextResponse.json(
@@ -33,6 +41,17 @@ export async function POST(req: NextRequest) {
         eligibility,
         generated,
       });
+    }
+
+    // Validate campaign ownership if campaignId provided
+    if (campaignId && userId) {
+      const campaignCheck = await OwnershipGuard.validateCampaignOwnership(userId, campaignId);
+      if (!campaignCheck.valid) {
+        return NextResponse.json(
+          { success: false, error: campaignCheck.errorMessage, errorCode: campaignCheck.errorCode },
+          { status: 403 }
+        );
+      }
     }
 
     // Live Execution Mode: Pre-send validation, idempotency guard, real provider transmit, and DB persistence

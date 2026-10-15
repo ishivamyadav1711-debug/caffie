@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isValidIndianState } from '@/data/indiaLocations';
+import { validateLocation } from '@/data/geographyData';
 import { pipelineOrchestrator } from '@/lib/orchestrator/pipelineOrchestrator';
 import { searchService } from '@/services/SearchService';
 import { jobManager } from '@/jobs/JobManager';
+import { SearchRequestPayload } from '@/types';
 import { waitUntil } from '@vercel/functions';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -36,27 +37,21 @@ export async function POST(req: NextRequest) {
       contactFilter = 'All Contacts',
       websiteFilter = 'Any Website',
       limit = 100,
+      minRating,
+      minReviews,
+      excludePerfectRating,
+      requirePositiveReviewEvidence,
+      reviewSort = 'default',
     } = body;
 
-    // 1. Strict Location Validation
-    if (country !== 'India') {
+    // 1. Strict Geographic Validation (India, USA, Canada)
+    const locValidation = validateLocation(country, state, city);
+    if (!locValidation.valid) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Restricted to India only. Foreign locations are not permitted.',
-          code: 'INVALID_COUNTRY',
-          leads: [],
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!state || !isValidIndianState(state)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Invalid Indian State or Union Territory: "${state}". Please select a valid region in India.`,
-          code: 'INVALID_STATE',
+          error: locValidation.error || 'Invalid geographic location specification.',
+          code: 'INVALID_LOCATION',
           leads: [],
         },
         { status: 400 }
@@ -76,14 +71,19 @@ export async function POST(req: NextRequest) {
     }
 
     const requestedLimit = Math.min(Math.max(Number(limit) || 25, 5), 250);
-    const searchPayload = {
-      country: 'India',
-      state,
-      city: city ? String(city).trim() : undefined,
+    const searchPayload: SearchRequestPayload = {
+      country: locValidation.country,
+      state: locValidation.matchedState,
+      city: locValidation.matchedCity || (city ? String(city).trim() : undefined),
       industry: industry.trim(),
       contactFilter,
       websiteFilter,
       limit: requestedLimit,
+      minRating: typeof minRating === 'number' ? minRating : undefined,
+      minReviews: typeof minReviews === 'number' ? minReviews : undefined,
+      excludePerfectRating: Boolean(excludePerfectRating),
+      requirePositiveReviewEvidence: Boolean(requirePositiveReviewEvidence),
+      reviewSort,
     };
 
     // If caller explicitly requests pipeline orchestrator engine

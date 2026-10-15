@@ -125,6 +125,23 @@ export interface LeadEntity {
   enrichmentStatus?: 'DISCOVERED' | 'ENRICHING' | 'ENRICHED' | 'QUALIFIED' | 'REJECTED';
   auditStatus?: 'PENDING' | 'AUDITING' | 'AUDITED';
   googlePlaceId?: string;
+  rating?: number | null;
+  reviewCount?: number | null;
+  userRatingCount?: number | null;
+  businessStatus?: string;
+  positiveReviewDataAvailable?: boolean;
+  positiveReviewCount?: number | null;
+  negativeReviewCount?: number | null;
+  neutralReviewCount?: number | null;
+  positiveReviewRatio?: number | null;
+  reviews?: Array<{
+    authorName?: string;
+    rating: number;
+    text?: string;
+    publishTime?: string;
+  }>;
+  commercialMilestones?: any[];
+  firstKnownGmvDate?: string | null;
   osmId?: string;
   provenance?: Record<string, { value: any; source: string; verified: boolean }>;
 
@@ -154,6 +171,19 @@ export function leadEntityToFrontend(lead: LeadEntity): FrontendLead {
     address: lead.address,
     state: lead.state,
     city: lead.city,
+    country: lead.country,
+    googlePlaceId: lead.googlePlaceId,
+    rating: lead.rating,
+    reviewCount: lead.reviewCount ?? lead.userRatingCount,
+    userRatingCount: lead.userRatingCount ?? lead.reviewCount,
+    positiveReviewDataAvailable: lead.positiveReviewDataAvailable,
+    positiveReviewCount: lead.positiveReviewCount,
+    negativeReviewCount: lead.negativeReviewCount,
+    neutralReviewCount: lead.neutralReviewCount,
+    positiveReviewRatio: lead.positiveReviewRatio,
+    reviews: lead.reviews,
+    commercialMilestones: lead.commercialMilestones,
+    firstKnownGmvDate: lead.firstKnownGmvDate,
     phone: lead.phone,
     email: lead.email,
     emailSource: lead.contacts?.find((c) => c.type === 'email')?.source || (lead.email ? 'official_website' : undefined),
@@ -165,7 +195,7 @@ export function leadEntityToFrontend(lead: LeadEntity): FrontendLead {
     websiteIssues: issues.map((i) => i.issue),
     osmId: lead.sourceEvidence?.[0]?.sourceId ? String(lead.sourceEvidence[0].sourceId) : undefined,
     osmType: (lead.sourceEvidence?.[0]?.rawTags?.osmType as any) || 'node',
-    source: lead.sources?.[0] || 'OpenStreetMap',
+    source: lead.sources?.[0] || 'google_places',
     sources: lead.sources,
     sourceEvidence: lead.sourceEvidence,
     latitude: lead.latitude,

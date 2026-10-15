@@ -19,6 +19,11 @@ export class JobManager {
       norm(criteria.industry),
       norm(criteria.contactFilter || 'all_contacts'),
       norm(criteria.websiteFilter || 'any_website'),
+      norm(criteria.minRating || 'none'),
+      norm(criteria.minReviews || 'none'),
+      norm(criteria.excludePerfectRating || 'false'),
+      norm(criteria.requirePositiveReviewEvidence || 'false'),
+      norm(criteria.reviewSort || 'default'),
       norm(criteria.limit || 50),
     ].join(':');
   }

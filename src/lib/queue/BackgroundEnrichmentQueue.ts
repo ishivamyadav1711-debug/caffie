@@ -7,6 +7,7 @@ import { websiteAuditActor } from '@/actors/WebsiteAuditActor';
 import { leadScoringActor } from '@/actors/LeadScoringActor';
 import { websiteDiscoveryActor } from '@/actors/WebsiteDiscoveryActor';
 import { websiteReachabilityActor } from '@/actors/WebsiteReachabilityActor';
+import { commercialEnrichmentActor } from '@/actors/CommercialEnrichmentActor';
 
 export type BackgroundJobType =
   | 'CONTACT_ENRICHMENT'
@@ -15,7 +16,8 @@ export type BackgroundJobType =
   | 'WEBSITE_REACHABILITY'
   | 'WEBSITE_CRAWL'
   | 'WEBSITE_AUDIT'
-  | 'LEAD_SCORING';
+  | 'LEAD_SCORING'
+  | 'COMMERCIAL_INTELLIGENCE';
 
 export type BackgroundJobStatus =
   | 'QUEUED'
@@ -371,6 +373,34 @@ export class BackgroundEnrichmentQueue {
           }
         } catch (scoreErr) {
           console.warn('[LeadScoring] Background scoring failed:', scoreErr);
+        }
+        break;
+      }
+      
+      case 'COMMERCIAL_INTELLIGENCE': {
+        const release = await semaphores.webSearch.acquire();
+        try {
+          const enrichRes = await commercialEnrichmentActor.execute({
+            jobId: job.searchId,
+            input: [
+              {
+                leadId: lead.leadId,
+                businessName: lead.businessName,
+                category: lead.category,
+                city: lead.city,
+                state: lead.state,
+                websiteUrl: lead.website
+              }
+            ]
+          });
+          const enriched = enrichRes.data[0];
+          if (enriched && enriched.milestones && enriched.milestones.length > 0) {
+            lead.commercialMilestones = lead.commercialMilestones || [];
+            lead.commercialMilestones!.push(...enriched.milestones);
+            leadPilotDb.upsertLead(lead);
+          }
+        } finally {
+          release();
         }
         break;
       }

@@ -330,6 +330,46 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
             </div>
           </div>
 
+          {/* Section: Commercial & GMV */}
+          <div className="p-4 rounded-xl border border-[#E2E8F0] bg-white space-y-3 shadow-2xs">
+             <div className="flex items-center gap-2 mb-2">
+                <Building2 className="h-4 w-4 text-teal-600" />
+                <h3 className="text-[13px] font-bold text-[#0F172A]">Commercial Intelligence</h3>
+             </div>
+             
+             {lead.commercialMilestones && lead.commercialMilestones.length > 0 ? (
+                lead.commercialMilestones.map((milestone, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[12px] space-y-2">
+                     <div className="flex justify-between items-center">
+                        <span className="font-bold text-slate-800">GMV: {milestone.gmvAmount ? (milestone.gmvCurrency === 'USD' ? '$' : '') + (milestone.gmvAmount >= 1000000 ? (milestone.gmvAmount / 1000000).toFixed(1) + 'M' : milestone.gmvAmount.toLocaleString()) : 'Verified'}</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase">
+                          {milestone.verificationStatus || 'VERIFIED'}
+                        </span>
+                     </div>
+                     <div className="text-slate-600">
+                        Date: <span className="font-semibold text-slate-800">{milestone.eventDate}</span> 
+                        <span className="text-slate-400 ml-1">({milestone.dateAccuracy || 'Precision Unknown'})</span>
+                     </div>
+                     {milestone.evidence && milestone.evidence.length > 0 && (
+                       <div className="mt-2 text-[11px] text-slate-500 border-t border-slate-200 pt-2">
+                         <div className="font-semibold text-slate-700 mb-1">Evidence Source:</div>
+                         <a href={milestone.evidence[0].sourceUrl} target="_blank" rel="noreferrer" className="text-teal-600 hover:underline truncate block">
+                           {milestone.evidence[0].sourceTitle || milestone.evidence[0].sourceUrl}
+                         </a>
+                         <div className="mt-1 italic border-l-2 border-slate-300 pl-2 bg-slate-100 p-1 rounded-r">
+                           "{milestone.evidence[0].evidenceText}"
+                         </div>
+                       </div>
+                     )}
+                  </div>
+                ))
+             ) : (
+                <div className="text-[12.5px] font-medium text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  GMV: Not publicly verified
+                </div>
+             )}
+          </div>
+
           {/* Section: Website & Status */}
           <div className="space-y-3.5">
             <div className="flex items-center justify-between">

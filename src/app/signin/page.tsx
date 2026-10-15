@@ -1,5 +1,5 @@
-import { UnifiedAuthPage } from '@/components/auth/UnifiedAuthPage';
+import { redirect } from 'next/navigation';
 
-export default function SignIn() {
-  return <UnifiedAuthPage initialMode="signin" />;
+export default function Redirect() {
+  redirect('/dashboard');
 }

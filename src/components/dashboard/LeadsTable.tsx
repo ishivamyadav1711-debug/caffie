@@ -18,8 +18,10 @@ import {
   MapPin,
   Building,
   AlertTriangle,
-  Send
+  Send,
+  Sparkles
 } from 'lucide-react';
+import { BulkAIOutreachModal } from '../outreach/BulkAIOutreachModal';
 import { 
   Lead, 
   SearchSummary,
@@ -75,7 +77,19 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [showAuditPanel, setShowAuditPanel] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [showBulkOutreachModal, setShowBulkOutreachModal] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  const toggleSelectLead = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedLeadIds((prev) => {
+      const copy = new Set(prev);
+      if (copy.has(id)) copy.delete(id);
+      else copy.add(id);
+      return copy;
+    });
+  };
 
   // Multi-Source transparency logic
   const googleCount = providerStats?.googlePlaces?.rawCount ?? 0;
@@ -171,6 +185,20 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
       unreachable,
     };
   }, [leads, summary]);
+
+  // Section 18: Real data review intelligence metrics
+  const reviewMetrics = useMemo(() => {
+    const withRating = leads.filter((l) => typeof l.rating === 'number' && l.rating > 0).length;
+    const withReviews = leads.filter(
+      (l) => (typeof l.reviewCount === 'number' && l.reviewCount > 0) || (typeof l.userRatingCount === 'number' && l.userRatingCount > 0)
+    ).length;
+    const totalReviews = leads.reduce((sum, l) => sum + (l.reviewCount || l.userRatingCount || 0), 0);
+    const avgRating =
+      withRating > 0
+        ? (leads.filter((l) => typeof l.rating === 'number' && l.rating > 0).reduce((sum, l) => sum + (l.rating || 0), 0) / withRating).toFixed(1)
+        : null;
+    return { withRating, withReviews, totalReviews, avgRating };
+  }, [leads]);
 
   // Section 36: Contact Action Tracking
   const handleContactAction = async (lead: Lead, action: string, channel: 'phone' | 'email' | 'whatsapp' | 'manual') => {
@@ -369,6 +397,22 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
               </button>
             )}
           </div>
+
+          {/* Multi-Select AI Outreach Action Button */}
+          {selectedLeadIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1.5 rounded-xl border border-slate-200">
+                {selectedLeadIds.size} selected
+              </span>
+              <button
+                onClick={() => setShowBulkOutreachModal(true)}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-[12px] font-semibold shadow-xs transition-colors cursor-pointer"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>AI Outreach ({selectedLeadIds.size})</span>
+              </button>
+            </div>
+          )}
 
           {/* Export Button */}
           <div className="relative" ref={exportRef}>
@@ -607,24 +651,24 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
           </span>
           <span className="text-[#CBD5E1]">•</span>
           <span className="text-[#334155] font-medium">
-            <strong className="text-[#0F172A]">{dynamicSummary.emailAndPhone}</strong> Email + Phone
+            <strong className="text-[#0F172A]">{dynamicSummary.withPhone}</strong> Phone
           </span>
           <span className="text-[#CBD5E1]">•</span>
           <span className="text-[#334155] font-medium">
-            <strong className="text-[#0F172A]">{dynamicSummary.withPhone}</strong> Phone Available
+            <strong className="text-[#0F172A]">{dynamicSummary.websiteAvailable}</strong> Website
           </span>
-          <span className="text-[#CBD5E1]">•</span>
-          <span className="text-[#334155] font-medium">
-            <strong className="text-[#0F172A]">{dynamicSummary.withEmail}</strong> Email Available
-          </span>
-          <span className="text-[#CBD5E1]">•</span>
-          <span className="text-[#334155] font-medium">
-            <strong className="text-[#64748B]">{dynamicSummary.noContact}</strong> Without Contact
-          </span>
-          <span className="text-[#CBD5E1]">•</span>
-          <span className="text-[#334155] font-medium">
-            <strong className="text-rose-700">{dynamicSummary.noWebsite}</strong> No Website
-          </span>
+          {reviewMetrics.withRating > 0 && (
+            <>
+              <span className="text-[#CBD5E1]">•</span>
+              <span className="text-[#334155] font-medium">
+                <strong className="text-amber-700">{reviewMetrics.withRating}</strong> Rated ({reviewMetrics.avgRating} ★ avg)
+              </span>
+              <span className="text-[#CBD5E1]">•</span>
+              <span className="text-[#334155] font-medium">
+                <strong className="text-teal-700">{reviewMetrics.totalReviews}</strong> Total Reviews
+              </span>
+            </>
+          )}
           <span className="text-[#CBD5E1]">•</span>
           <span className="text-[#334155] font-medium">
             <strong className="text-emerald-700">{dynamicSummary.workingWebsite}</strong> Working Website
@@ -916,9 +960,26 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
           <table className="w-full text-left text-[12.5px] border-collapse">
             <thead>
               <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">
+                <th className="px-3 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={paginatedLeads.length > 0 && paginatedLeads.every((l) => selectedLeadIds.has(l.id))}
+                    onChange={() => {
+                      if (paginatedLeads.every((l) => selectedLeadIds.has(l.id))) {
+                        setSelectedLeadIds(new Set());
+                      } else {
+                        setSelectedLeadIds(new Set(paginatedLeads.map((l) => l.id)));
+                      }
+                    }}
+                    className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                    title="Select / Deselect all"
+                  />
+                </th>
                 <th className="px-5 py-3">Business</th>
                 <th className="px-3 py-3">Industry</th>
                 <th className="px-3 py-3">Location</th>
+                <th className="px-3 py-3 w-48">Commercial Milestones</th>
+                <th className="px-3 py-3">Rating &amp; Reviews</th>
                 <th className="px-3 py-3">Phone</th>
                 <th className="px-3 py-3">Email</th>
                 <th className="px-3 py-3">Website</th>
@@ -944,6 +1005,16 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                     onClick={() => onSelectLead(lead)}
                     className="hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
                   >
+                    {/* Select Checkbox */}
+                    <td className="px-3 py-3.5 align-top" onClick={(e) => toggleSelectLead(lead.id, e)}>
+                      <input
+                        type="checkbox"
+                        checked={selectedLeadIds.has(lead.id)}
+                        onChange={() => {}}
+                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer mt-0.5"
+                      />
+                    </td>
+
                     {/* 1. Business */}
                     <td className="px-5 py-3.5 align-top">
                       <div className="flex flex-col">
@@ -975,6 +1046,51 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                           </span>
                         )}
                       </div>
+                    </td>
+
+                    {/* Commercial Milestones */}
+                    <td className="px-3 py-3.5 align-top">
+                      {lead.commercialMilestones && lead.commercialMilestones.length > 0 ? (
+                        <div className="flex flex-col gap-1.5 text-[11px]">
+                          {lead.commercialMilestones.map((milestone, idx) => (
+                            <div key={idx} className="border-l-2 border-teal-500 pl-2">
+                              <span className="font-bold text-slate-800">GMV: {milestone.gmvAmount ? (milestone.gmvCurrency === 'USD' ? '$' : '') + (milestone.gmvAmount >= 1000000 ? (milestone.gmvAmount / 1000000).toFixed(1) + 'M' : milestone.gmvAmount.toLocaleString()) : 'Verified'}</span>
+                              <div className="text-slate-600 mt-0.5">{milestone.eventDate} ({milestone.dateAccuracy || 'Precision Unknown'})</div>
+                              {milestone.evidence && milestone.evidence[0] && (
+                                <a href={milestone.evidence[0].sourceUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="mt-0.5 text-teal-600 hover:underline inline-flex items-center truncate max-w-[120px]" title={milestone.evidence[0].evidenceText}>
+                                  [{milestone.verificationStatus || 'VERIFIED'}]
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-[#94A3B8] italic">Not publicly verified</span>
+                      )}
+                    </td>
+
+                    {/* Rating & Reviews */}
+                    <td className="px-3 py-3.5 align-top whitespace-nowrap">
+                      {typeof lead.rating === 'number' ? (
+                        <div className="flex flex-col text-[11.5px]">
+                          <span className="font-bold text-[#0F172A] flex items-center gap-1">
+                            <span className="text-amber-500">★</span>
+                            <span>{lead.rating.toFixed(1)}</span>
+                            <span className="text-[#64748B] font-normal">
+                              ({lead.userRatingCount ?? lead.reviewCount ?? 0})
+                            </span>
+                          </span>
+                          {lead.positiveReviewDataAvailable && (
+                            <span className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                              {typeof lead.positiveReviewRatio === 'number'
+                                ? `${Math.round(lead.positiveReviewRatio * 100)}% Positive`
+                                : 'Verified Reviews'}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-[#94A3B8]">No reviews</span>
+                      )}
                     </td>
 
                     {/* 4. Phone */}
@@ -1163,6 +1279,20 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* Bulk AI Outreach Modal */}
+      {showBulkOutreachModal && (
+        <BulkAIOutreachModal
+          bulkLeads={leads.filter((l) => selectedLeadIds.has(l.id))}
+          onClose={() => setShowBulkOutreachModal(false)}
+          onSuccess={() => {
+            setSelectedLeadIds(new Set());
+            if (onShowToast) {
+              onShowToast('Outreach Complete', 'Selected leads outreach completed successfully.', 'success');
+            }
+          }}
+        />
       )}
     </div>
   );

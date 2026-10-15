@@ -2,11 +2,13 @@ import { BaseActor, ActorContext } from '@/models/Actor';
 import { RawDiscoveredBusiness } from '@/providers/BusinessDiscoveryProvider';
 import { isCoordinateInLocation, MAJOR_CITIES_BOUNDS, STATE_BOUNDS } from '@/lib/geoResolver';
 import { INDIAN_STATES_AND_UTS, COMMON_CITY_ALIASES } from '@/data/indiaLocations';
+import { normalizeCountry, USA_STATES, CANADA_PROVINCES_AND_TERRITORIES } from '@/data/geographyData';
 
 export interface LocationVerificationInput {
   businesses: RawDiscoveredBusiness[];
   state: string;
   city?: string;
+  country?: string;
 }
 
 export interface LocationVerificationOutput {
@@ -245,16 +247,90 @@ export class LocationVerificationActor extends BaseActor<LocationVerificationInp
     data: LocationVerificationOutput;
     sources: string[];
   }> {
-    const { businesses, state, city } = context.input;
-    context.onProgress?.(`Verifying geographic boundaries for ${businesses.length} candidates...`);
+    const { businesses, state, city, country } = context.input;
+    const normCountry = normalizeCountry(country || 'India') || 'India';
+    context.onProgress?.(`Verifying geographic boundaries (${normCountry}) for ${businesses.length} candidates...`);
 
     const verified: RawDiscoveredBusiness[] = [];
     const unknown: RawDiscoveredBusiness[] = [];
     const rejected: { business: RawDiscoveredBusiness; reason: string }[] = [];
 
-    const targetCity = city && city.trim().toLowerCase() !== 'all cities in this state' ? city.trim() : undefined;
+    const targetCity = city && city.trim().toLowerCase() !== 'all cities in this state' && city.trim().toLowerCase() !== 'all cities in this province' ? city.trim() : undefined;
     const reqCityLower = targetCity ? targetCity.toLowerCase() : '';
     const reqStateLower = state ? state.trim().toLowerCase() : '';
+
+    // Specialized logic for USA and Canada
+    if (normCountry === 'USA' || normCountry === 'Canada') {
+      const regions = normCountry === 'USA' ? USA_STATES : CANADA_PROVINCES_AND_TERRITORIES;
+      const targetRegion = regions.find(
+        (r) => r.name.toLowerCase() === reqStateLower || r.code.toLowerCase() === reqStateLower
+      );
+      const targetStateName = targetRegion ? targetRegion.name.toLowerCase() : reqStateLower;
+      const targetStateCode = targetRegion ? targetRegion.code.toLowerCase() : '';
+
+      for (const b of businesses) {
+        const addrLower = (b.address || '').toLowerCase();
+        const cityTagLower = (b.city || b.rawTags?.['addr:city'] || '').toLowerCase().trim();
+
+        // 1. Cross-country exclusion
+        if (normCountry === 'USA' && (addrLower.includes(', canada') || addrLower.includes(', mexico') || addrLower.includes(', india'))) {
+          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          continue;
+        }
+        if (normCountry === 'Canada' && (addrLower.includes(', usa') || addrLower.includes(', united states') || addrLower.includes(', india'))) {
+          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          continue;
+        }
+
+        // 2. Conflicting other state/province check
+        let conflictingStateFound = false;
+        for (const other of regions) {
+          if (other.name.toLowerCase() === targetStateName || other.code.toLowerCase() === targetStateCode) continue;
+          const otherName = other.name.toLowerCase();
+          const otherCodeComma = `, ${other.code.toLowerCase()}`;
+          const otherCodeZip = new RegExp(`\\b${other.code.toLowerCase()}\\s+\\d{5}`, 'i');
+          if (containsWord(addrLower, otherName) || addrLower.includes(otherCodeComma) || otherCodeZip.test(addrLower)) {
+            conflictingStateFound = true;
+            break;
+          }
+        }
+        if (conflictingStateFound) {
+          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          continue;
+        }
+
+        // 3. City evaluation
+        if (targetCity) {
+          const isCityInAddr = containsWord(addrLower, reqCityLower) || addrLower.includes(reqCityLower);
+          const isCityTag = cityTagLower.includes(reqCityLower) || reqCityLower.includes(cityTagLower);
+
+          if (isCityInAddr || isCityTag) {
+            verified.push(b);
+          } else {
+            // Check if address explicitly states a known other city in the same state
+            const otherCity = targetRegion?.cities.find((c) => {
+              const cLow = c.toLowerCase();
+              return cLow !== reqCityLower && containsWord(addrLower, cLow);
+            });
+            if (otherCity) {
+              rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            } else {
+              // Address might have a neighborhood, county, or district within the target city
+              verified.push(b);
+            }
+          }
+        } else {
+          // State-wide search
+          verified.push(b);
+        }
+      }
+
+      context.onProgress?.(`Location verification complete (${normCountry}): ${verified.length} verified, ${unknown.length} unknown, ${rejected.length} outside bounds.`);
+      return {
+        data: { verified, unknown, rejected },
+        sources: ['Municipal Boundary Verifier'],
+      };
+    }
 
     for (const b of businesses) {
       const hasCoords = typeof b.latitude === 'number' &&

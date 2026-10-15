@@ -4,7 +4,7 @@ import { LeadEntity, ContactItem, leadEntityToFrontend } from '@/models/Lead';
 import { leadPilotDb } from '@/db';
 import { leadsDb } from '@/lib/leadsDb';
 import { logger } from '@/utils/logger';
-import { validateStateAndCity } from '@/data/indiaLocations';
+import { validateLocation } from '@/data/geographyData';
 import { resolveIndiaLocation } from '@/lib/geoResolver';
 import { searchPlanner } from '@/lib/search/SearchPlanner';
 import { performanceTracker, SearchTimestamps } from '@/lib/metrics/PerformanceTracker';
@@ -286,14 +286,15 @@ export class LeadPilotOrchestrator {
       const criteria = job.criteria;
 
       // 0. Location Pre-validation
-      const validation = validateStateAndCity(criteria.state, criteria.city);
+      const validation = validateLocation(criteria.country || 'India', criteria.state, criteria.city);
       if (!validation.valid) {
         throw new Error(validation.error || 'Invalid State or City specification.');
       }
 
+      const verifiedCountry = validation.country;
       const verifiedState = validation.matchedState || criteria.state;
       const verifiedCity = validation.matchedCity || criteria.city;
-      const bbox = await resolveIndiaLocation(verifiedState, verifiedCity);
+      const bbox = verifiedCountry === 'India' ? await resolveIndiaLocation(verifiedState, verifiedCity) : undefined;
 
       // Check persistent storage for previously discovered businesses (Section 12 & 26)
       const existingLeads = leadPilotDb.findLeadsByLocationAndIndustry({
@@ -331,7 +332,7 @@ export class LeadPilotOrchestrator {
           industry: criteria.industry,
           state: verifiedState,
           city: verifiedCity,
-          country: criteria.country || 'India',
+          country: verifiedCountry,
           limit: targetDiscoveryPool,
           bbox,
         },
@@ -433,6 +434,7 @@ export class LeadPilotOrchestrator {
           businesses: mergeOutput.merged,
           state: verifiedState,
           city: verifiedCity,
+          country: verifiedCountry,
         },
         'Verifying municipal boundaries...'
       );
@@ -866,7 +868,7 @@ export class LeadPilotOrchestrator {
           address: b.address || '',
           city: b.city || verifiedCity || '',
           state: b.state || verifiedState,
-          country: (b as any).country || criteria.country || 'India',
+          country: (b as any).country || verifiedCountry,
           postcode: b.postalCode || b.postcode,
           latitude: b.latitude,
           longitude: b.longitude,
@@ -886,7 +888,17 @@ export class LeadPilotOrchestrator {
           sourceEvidence: resolvedEvidence,
           enrichmentStatus: 'QUALIFIED',
           auditStatus: webClass.hasEvidenceBackedImprovement ? 'AUDITED' : 'PENDING',
-          googlePlaceId,
+          googlePlaceId: b.googlePlaceId || googlePlaceId,
+          rating: b.rating !== undefined ? b.rating : null,
+          userRatingCount: b.userRatingCount !== undefined ? b.userRatingCount : null,
+          reviewCount: b.userRatingCount !== undefined ? b.userRatingCount : null,
+          businessStatus: b.businessStatus,
+          positiveReviewDataAvailable: b.positiveReviewDataAvailable,
+          positiveReviewCount: b.positiveReviewCount,
+          negativeReviewCount: b.negativeReviewCount,
+          neutralReviewCount: b.neutralReviewCount,
+          positiveReviewRatio: b.positiveReviewRatio,
+          reviews: b.reviews,
           osmId,
           provenance: {
             phone: {
@@ -907,6 +919,80 @@ export class LeadPilotOrchestrator {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
+
+        // Review Intelligence Filters (Sections 9, 10, 11 - REAL DATA ONLY)
+        if (criteria.excludePerfectRating && entity.rating === 5.0) {
+          rejectedCandidatesList.push({
+            name: b.businessName,
+            category: b.category,
+            city: b.city,
+            state: b.state,
+            phone: b.phone,
+            email: b.email,
+            websiteUrl: b.website,
+            websiteStatus: webClass.status,
+            rejectionReason: 'FILTER_MISMATCH' as any,
+            rejectionDetails: 'Excluded because: Perfect 5.0 rating',
+          });
+          job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+          return null;
+        }
+
+        if (typeof criteria.minRating === 'number' && criteria.minRating > 0) {
+          if (entity.rating === null || entity.rating === undefined || entity.rating < criteria.minRating) {
+            rejectedCandidatesList.push({
+              name: b.businessName,
+              category: b.category,
+              city: b.city,
+              state: b.state,
+              phone: b.phone,
+              email: b.email,
+              websiteUrl: b.website,
+              websiteStatus: webClass.status,
+              rejectionReason: 'FILTER_MISMATCH' as any,
+              rejectionDetails: `Excluded because: Rating (${entity.rating ?? 'none'}) below minimum requirement (${criteria.minRating})`,
+            });
+            job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+            return null;
+          }
+        }
+
+        if (typeof criteria.minReviews === 'number' && criteria.minReviews > 0) {
+          const reviewsCount = entity.userRatingCount || 0;
+          if (reviewsCount < criteria.minReviews) {
+            rejectedCandidatesList.push({
+              name: b.businessName,
+              category: b.category,
+              city: b.city,
+              state: b.state,
+              phone: b.phone,
+              email: b.email,
+              websiteUrl: b.website,
+              websiteStatus: webClass.status,
+              rejectionReason: 'FILTER_MISMATCH' as any,
+              rejectionDetails: `Excluded because: Review count (${reviewsCount}) below minimum requirement (${criteria.minReviews})`,
+            });
+            job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+            return null;
+          }
+        }
+
+        if (criteria.requirePositiveReviewEvidence && !entity.positiveReviewDataAvailable) {
+          rejectedCandidatesList.push({
+            name: b.businessName,
+            category: b.category,
+            city: b.city,
+            state: b.state,
+            phone: b.phone,
+            email: b.email,
+            websiteUrl: b.website,
+            websiteStatus: webClass.status,
+            rejectionReason: 'FILTER_MISMATCH' as any,
+            rejectionDetails: 'Excluded because: Insufficient positive review evidence',
+          });
+          job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+          return null;
+        }
 
         // Strict Post-Enrichment Contact Filter Verification
         const contactFilterEval = evaluateContactFilter(
@@ -1064,7 +1150,39 @@ export class LeadPilotOrchestrator {
           (job.rejectionReasons.WEBSITE_FILTER_MISMATCH || 0) + violationsCount;
       }
 
-      const initialEntities = strictlyGuaranteedEntities;
+      let initialEntities = [...strictlyGuaranteedEntities];
+
+      // Review Sorting Logic (Section 10 - Transparent Scoring & Provider Data)
+      if (criteria.reviewSort && criteria.reviewSort !== 'default') {
+        if (criteria.reviewSort === 'most_reviews') {
+          initialEntities.sort((a, b) => (b.userRatingCount || 0) - (a.userRatingCount || 0));
+        } else if (criteria.reviewSort === 'highest_rating') {
+          initialEntities.sort((a, b) => {
+            const diff = (b.rating || 0) - (a.rating || 0);
+            if (Math.abs(diff) > 0.01) return diff;
+            return (b.userRatingCount || 0) - (a.userRatingCount || 0);
+          });
+        } else if (criteria.reviewSort === 'highest_positive_signal') {
+          // Transparent formula: (rating || 0) * log10(userRatingCount + 1) + (positiveReviewRatio ? positiveReviewRatio * 5 : 0)
+          const score = (e: LeadEntity) => {
+            const r = e.rating || 0;
+            const count = e.userRatingCount || 0;
+            const volScore = Math.log10(count + 1);
+            const evidenceBoost = e.positiveReviewRatio ? e.positiveReviewRatio * 5 : 0;
+            return r * volScore + evidenceBoost;
+          };
+          initialEntities.sort((a, b) => score(b) - score(a));
+        } else if (criteria.reviewSort === 'needs_attention') {
+          // Prioritizes businesses with low ratings or few reviews that need reputation management
+          const score = (e: LeadEntity) => {
+            const r = e.rating || 3.0;
+            const count = e.userRatingCount || 0;
+            return (5.0 - r) * 10 + (count < 20 ? 10 : 0);
+          };
+          initialEntities.sort((a, b) => score(b) - score(a));
+        }
+      }
+
       job.rotationStats = rotationResult.stats;
 
       // Queue Background Enrichment for Delivered Leads
@@ -1112,6 +1230,16 @@ export class LeadPilotOrchestrator {
           });
           backgroundJobsQueued++;
         }
+
+        // Always queue commercial intelligence
+        backgroundEnrichmentQueue.enqueue({
+          leadId: entity.leadId,
+          searchId: job.id,
+          type: 'COMMERCIAL_INTELLIGENCE',
+          priority: 'LOW',
+          provider: 'gemini_search',
+        });
+        backgroundJobsQueued++;
       }
 
       // Fast response assembly with truthful metrics

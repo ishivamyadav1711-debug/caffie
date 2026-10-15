@@ -21,8 +21,9 @@ export class GooglePlacesNewProvider {
   }
 
   public isConfigured(): boolean {
-    const key = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
-    return Boolean(key && key.trim().length > 0 && process.env.GOOGLE_PLACES_ENABLED !== 'false');
+    const rawKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const key = rawKey ? rawKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+    return Boolean(key && key.length > 0 && process.env.GOOGLE_PLACES_ENABLED !== 'false');
   }
 
   /**
@@ -52,7 +53,8 @@ export class GooglePlacesNewProvider {
       };
     }
 
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const rawApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const apiKey = rawApiKey ? rawApiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
     if (!apiKey) {
       return {
         providerId: this.providerId,

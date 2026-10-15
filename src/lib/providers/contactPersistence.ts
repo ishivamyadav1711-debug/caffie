@@ -146,16 +146,30 @@ export async function persistPhoneVerification(
   result: PhoneVerificationResult
 ): Promise<void> {
   try {
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { normalizedValue: true },
+    });
+
+    const normalizedValue = contact?.normalizedValue || result.normalizedPhone || result.rawPhone;
+
     await prisma.contactVerification.create({
       data: {
         contactId,
+        type: 'PHONE',
+        normalizedValue,
         provider: result.provider,
         status: result.verificationStatus,
         level: result.verificationLevel,
+        providerStatus: result.providerStatus || (result.verificationStatus === 'VERIFIED' ? 'READY' : undefined),
+        providerRequestId: result.providerRequestId,
+        errorCode: result.errorCode,
         hasValidSyntax: result.isValid,
         lineType: result.lineType,
         carrier: result.carrier,
         confidence: result.confidence,
+        evidence: result.details?.evidence ? JSON.stringify(result.details.evidence) : undefined,
+        expiresAt: result.expiresAt ? new Date(result.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         details: result.details ? JSON.stringify(result.details) : undefined,
       },
     });
@@ -167,7 +181,7 @@ export async function persistPhoneVerification(
         verificationStatus: result.verificationStatus,
         lineType: result.lineType,
         countryCode: result.countryCode,
-        verifiedAt: new Date(),
+        verifiedAt: result.verificationStatus === 'VERIFIED' ? new Date() : undefined,
         lastCheckedAt: new Date(),
         confidence: result.confidence,
       },
@@ -184,17 +198,31 @@ export async function persistEmailVerification(
   result: EmailVerificationResult
 ): Promise<void> {
   try {
+    const contact = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { normalizedValue: true },
+    });
+
+    const normalizedValue = contact?.normalizedValue || result.normalizedEmail || result.rawEmail;
+
     await prisma.contactVerification.create({
       data: {
         contactId,
+        type: 'EMAIL',
+        normalizedValue,
         provider: result.provider,
         status: result.verificationStatus,
         level: result.verificationLevel,
+        providerStatus: result.providerStatus || (result.verificationStatus === 'VERIFIED' ? 'READY' : undefined),
+        providerRequestId: result.providerRequestId,
+        errorCode: result.errorCode,
         hasValidSyntax: result.hasValidSyntax,
         hasMxRecords: result.hasMxRecords,
         isDisposable: result.isDisposable,
         isRoleBased: result.isRoleBased,
         confidence: result.confidence,
+        evidence: result.details?.evidence ? JSON.stringify(result.details.evidence) : undefined,
+        expiresAt: result.expiresAt ? new Date(result.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         details: result.details ? JSON.stringify(result.details) : undefined,
       },
     });
@@ -207,7 +235,7 @@ export async function persistEmailVerification(
         domain: result.domain,
         isRoleBased: result.isRoleBased,
         isDisposable: result.isDisposable,
-        verifiedAt: new Date(),
+        verifiedAt: result.verificationStatus === 'VERIFIED' ? new Date() : undefined,
         lastCheckedAt: new Date(),
         confidence: result.confidence,
       },

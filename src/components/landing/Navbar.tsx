@@ -101,14 +101,14 @@ export function Navbar({ onNavigate }: NavbarProps = {}) {
 
           {onNavigate ? (
             <button
-              onClick={() => onNavigate('auth', 'signin')}
+              onClick={() => onNavigate('dashboard')}
               className="text-[13px] font-medium text-slate-600 hover:text-slate-900 px-3 py-1.5 transition-colors cursor-pointer"
             >
               Sign In
             </button>
           ) : (
             <Link
-              href="/signin"
+              href="/dashboard"
               className="text-[13px] font-medium text-slate-600 hover:text-slate-900 px-3 py-1.5 transition-colors"
             >
               Sign In
@@ -125,7 +125,7 @@ export function Navbar({ onNavigate }: NavbarProps = {}) {
             </button>
           ) : (
             <Link
-              href="/signup"
+              href="/dashboard"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-medium text-white bg-slate-900 hover:bg-slate-800 transition-all duration-200 shadow-sm hover:shadow hover:scale-[1.02] active:scale-[0.98]"
             >
               <span>Get Started</span>
@@ -187,14 +187,14 @@ export function Navbar({ onNavigate }: NavbarProps = {}) {
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <Link
-                href="/signin"
+                href="/dashboard"
                 className="text-xs font-medium text-slate-600 px-3 py-2"
               >
                 Sign In
               </Link>
             </div>
             <Link
-              href="/signup"
+              href="/dashboard"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium text-white bg-slate-900"
             >
               <span>Get Started</span>

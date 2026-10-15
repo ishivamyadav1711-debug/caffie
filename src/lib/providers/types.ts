@@ -29,7 +29,7 @@ export interface DiscoveryCriteria {
   industry: string;
   state: string;
   city?: string;
-  country: string;
+  country?: string;
   limit: number;
 }
 

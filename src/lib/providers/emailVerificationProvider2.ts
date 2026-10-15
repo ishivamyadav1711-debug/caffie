@@ -17,6 +17,7 @@ import {
   ContactVerificationStatus,
   VerificationLevel,
 } from './contactTypes';
+import { contactVerificationCache } from './ContactVerificationCache';
 
 const resolveMx = dns.promises.resolveMx;
 
@@ -35,6 +36,11 @@ export interface EmailVerificationResult {
   verificationLevel: VerificationLevel;
   confidence: number;
   provider: string;
+  providerStatus?: 'READY' | 'NOT_CONFIGURED' | 'RATE_LIMITED' | 'TIMEOUT' | 'AUTH_FAILED' | 'PROVIDER_ERROR' | 'QUOTA_EXCEEDED' | 'UNAVAILABLE';
+  providerRequestId?: string;
+  errorCode?: string;
+  cached?: boolean;
+  expiresAt?: string;
   details?: Record<string, any>;
 }
 
@@ -186,15 +192,45 @@ export class DnsMxVerificationProvider implements EmailVerificationProviderInter
 
 export class ZeroBounceVerificationProvider implements EmailVerificationProviderInterface {
   readonly name = 'zerobounce';
+  private consecutiveFailures = 0;
+  private circuitBreakerTrippedUntil: number | null = null;
+  private readonly maxFailures = 5;
+  private readonly breakerResetMs = 60000;
 
   isConfigured(): boolean {
+    if (process.env.CONTACT_EMAIL_EXTERNAL_VERIFICATION === 'false') {
+      return false;
+    }
     return Boolean(process.env.ZEROBOUNCE_API_KEY?.trim());
+  }
+
+  private isCircuitOpen(): boolean {
+    if (!this.circuitBreakerTrippedUntil) return false;
+    if (Date.now() > this.circuitBreakerTrippedUntil) {
+      this.circuitBreakerTrippedUntil = null;
+      this.consecutiveFailures = 0;
+      return false;
+    }
+    return true;
+  }
+
+  private recordFailure(): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= this.maxFailures) {
+      this.circuitBreakerTrippedUntil = Date.now() + this.breakerResetMs;
+    }
+  }
+
+  private recordSuccess(): void {
+    this.consecutiveFailures = 0;
+    this.circuitBreakerTrippedUntil = null;
   }
 
   async verifyEmail(email: string): Promise<EmailVerificationResult> {
     const raw = (email || '').trim().toLowerCase();
     const domain = raw.includes('@') ? raw.split('@')[1] : '';
     const localPart = raw.includes('@') ? raw.split('@')[0] : '';
+    const isRoleBased = ROLE_BASED_PREFIXES.has(localPart);
 
     if (!this.isConfigured()) {
       return {
@@ -205,123 +241,271 @@ export class ZeroBounceVerificationProvider implements EmailVerificationProvider
         hasValidSyntax: false,
         hasMxRecords: null,
         isDisposable: false,
-        isRoleBased: false,
+        isRoleBased,
         verificationStatus: 'UNAVAILABLE',
         verificationLevel: 'SYNTAX',
         confidence: 0,
         provider: this.name,
-        details: { reason: 'ZeroBounce API key not configured (ZEROBOUNCE_API_KEY missing)' },
+        providerStatus: 'NOT_CONFIGURED',
+        details: { reason: 'ZeroBounce API key not configured or disabled' },
       };
     }
 
-    const apiKey = process.env.ZEROBOUNCE_API_KEY!.trim();
-
+    // 1. Check Verification Cache
     try {
-      const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(raw)}`;
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(8000),
-      });
-
-      if (!response.ok) {
-        // API error — fall back to DNS, don't claim VERIFIED
-        const dnsProvider = new DnsMxVerificationProvider();
-        const dnsResult = await dnsProvider.verifyEmail(email);
+      const cached = await contactVerificationCache.getCachedEmailVerification(raw, this.name);
+      if (cached) {
         return {
-          ...dnsResult,
+          rawEmail: email,
+          normalizedEmail: raw,
+          domain,
+          isValid: cached.status === 'VERIFIED' || cached.status === 'ROLE_BASED',
+          hasValidSyntax: true,
+          hasMxRecords: true,
+          isDisposable: cached.status === 'DISPOSABLE',
+          isRoleBased: cached.status === 'ROLE_BASED' || isRoleBased,
+          verificationStatus: cached.status as ContactVerificationStatus,
+          verificationLevel: cached.level as VerificationLevel,
+          confidence: cached.confidence,
           provider: this.name,
-          details: {
-            ...dnsResult.details,
-            zeroBounceError: `HTTP ${response.status}`,
-          },
+          providerStatus: (cached.providerStatus as any) || 'READY',
+          cached: true,
+          expiresAt: cached.expiresAt.toISOString(),
+          details: { ...cached.details, fromCache: true },
         };
       }
+    } catch (err) {
+      console.warn('[ZeroBounce] Cache read failed:', err);
+    }
 
-      const data = await response.json();
-      const zbStatus = (data.status || '').toLowerCase();
-      const zbSubStatus = (data.sub_status || '').toLowerCase();
-      const isRoleBased = ROLE_BASED_PREFIXES.has(localPart);
-
-      let verificationStatus: ContactVerificationStatus;
-      let isValid: boolean;
-      let confidence: number;
-
-      switch (zbStatus) {
-        case 'valid':
-          verificationStatus = isRoleBased ? 'ROLE_BASED' : 'VERIFIED';
-          isValid = true;
-          confidence = 0.98;
-          break;
-        case 'invalid':
-          verificationStatus = 'INVALID';
-          isValid = false;
-          confidence = 0.95;
-          break;
-        case 'catch-all':
-          verificationStatus = 'RISKY';
-          isValid = true;
-          confidence = 0.6;
-          break;
-        case 'spamtrap':
-          verificationStatus = 'INVALID';
-          isValid = false;
-          confidence = 0.99;
-          break;
-        case 'abuse':
-          verificationStatus = 'RISKY';
-          isValid = false;
-          confidence = 0.9;
-          break;
-        case 'do_not_mail':
-          if (zbSubStatus === 'disposable') {
-            verificationStatus = 'DISPOSABLE';
-          } else if (zbSubStatus === 'role_based') {
-            verificationStatus = 'ROLE_BASED';
-          } else {
-            verificationStatus = 'RISKY';
-          }
-          isValid = false;
-          confidence = 0.9;
-          break;
-        default:
-          verificationStatus = 'UNKNOWN';
-          isValid = false;
-          confidence = 0.3;
-      }
-
+    // 2. Check Circuit Breaker
+    if (this.isCircuitOpen()) {
       return {
         rawEmail: email,
         normalizedEmail: raw,
         domain,
-        isValid,
+        isValid: false,
         hasValidSyntax: true,
-        hasMxRecords: data.mx_found === 'true' || data.mx_found === true,
-        isDisposable: zbSubStatus === 'disposable',
+        hasMxRecords: null,
+        isDisposable: false,
         isRoleBased,
-        verificationStatus,
-        verificationLevel: 'DELIVERABILITY',
-        confidence,
+        verificationStatus: 'UNAVAILABLE',
+        verificationLevel: 'SYNTAX',
+        confidence: 0,
         provider: this.name,
-        details: {
-          zeroBounceStatus: data.status,
-          zeroBounceSubStatus: data.sub_status,
-          mxRecord: data.mx_record,
-          didYouMean: data.did_you_mean,
-          processedAt: data.processed_at,
-        },
-      };
-    } catch (err: any) {
-      // Network failure — fall back to DNS MX
-      const dnsProvider = new DnsMxVerificationProvider();
-      const dnsResult = await dnsProvider.verifyEmail(email);
-      return {
-        ...dnsResult,
-        provider: this.name,
-        details: {
-          ...dnsResult.details,
-          zeroBounceError: err.message || 'ZeroBounce request failed',
-        },
+        providerStatus: 'UNAVAILABLE',
+        errorCode: 'CIRCUIT_BREAKER_OPEN',
+        details: { reason: 'ZeroBounce circuit breaker open due to consecutive failures' },
       };
     }
+
+    const apiKey = process.env.ZEROBOUNCE_API_KEY!.trim();
+    const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(raw)}`;
+
+    // Bounded Retries with Exponential Backoff
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(5000),
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          this.recordFailure();
+          return {
+            rawEmail: email,
+            normalizedEmail: raw,
+            domain,
+            isValid: false,
+            hasValidSyntax: true,
+            hasMxRecords: null,
+            isDisposable: false,
+            isRoleBased,
+            verificationStatus: 'UNAVAILABLE',
+            verificationLevel: 'SYNTAX',
+            confidence: 0,
+            provider: this.name,
+            providerStatus: 'AUTH_FAILED',
+            errorCode: 'INVALID_CREDENTIALS',
+            details: { httpStatus: response.status, reason: 'ZeroBounce authentication failed' },
+          };
+        }
+
+        if (response.status === 429) {
+          this.recordFailure();
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+            continue;
+          }
+          return {
+            rawEmail: email,
+            normalizedEmail: raw,
+            domain,
+            isValid: false,
+            hasValidSyntax: true,
+            hasMxRecords: null,
+            isDisposable: false,
+            isRoleBased,
+            verificationStatus: 'UNAVAILABLE',
+            verificationLevel: 'SYNTAX',
+            confidence: 0,
+            provider: this.name,
+            providerStatus: 'RATE_LIMITED',
+            errorCode: 'RATE_LIMIT_EXCEEDED',
+            details: { httpStatus: 429, reason: 'ZeroBounce rate limit reached' },
+          };
+        }
+
+        if (!response.ok) {
+          this.recordFailure();
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, 600 * attempt));
+            continue;
+          }
+          return {
+            rawEmail: email,
+            normalizedEmail: raw,
+            domain,
+            isValid: false,
+            hasValidSyntax: true,
+            hasMxRecords: null,
+            isDisposable: false,
+            isRoleBased,
+            verificationStatus: 'UNAVAILABLE',
+            verificationLevel: 'SYNTAX',
+            confidence: 0,
+            provider: this.name,
+            providerStatus: 'PROVIDER_ERROR',
+            errorCode: `HTTP_${response.status}`,
+            details: { httpStatus: response.status },
+          };
+        }
+
+        const data = await response.json();
+        this.recordSuccess();
+
+        const zbStatus = (data.status || '').toLowerCase();
+        const zbSubStatus = (data.sub_status || '').toLowerCase();
+
+        let verificationStatus: ContactVerificationStatus;
+        let isValid: boolean;
+        let confidence: number;
+
+        switch (zbStatus) {
+          case 'valid':
+            verificationStatus = isRoleBased ? 'ROLE_BASED' : 'VERIFIED';
+            isValid = true;
+            confidence = 0.98;
+            break;
+          case 'invalid':
+            verificationStatus = 'INVALID';
+            isValid = false;
+            confidence = 0.95;
+            break;
+          case 'catch-all':
+            verificationStatus = 'RISKY';
+            isValid = true;
+            confidence = 0.6;
+            break;
+          case 'spamtrap':
+            verificationStatus = 'INVALID';
+            isValid = false;
+            confidence = 0.99;
+            break;
+          case 'abuse':
+            verificationStatus = 'RISKY';
+            isValid = false;
+            confidence = 0.9;
+            break;
+          case 'do_not_mail':
+            if (zbSubStatus === 'disposable') {
+              verificationStatus = 'DISPOSABLE';
+            } else if (zbSubStatus === 'role_based') {
+              verificationStatus = 'ROLE_BASED';
+            } else {
+              verificationStatus = 'RISKY';
+            }
+            isValid = false;
+            confidence = 0.9;
+            break;
+          default:
+            verificationStatus = 'UNKNOWN';
+            isValid = false;
+            confidence = 0.3;
+        }
+
+        const result: EmailVerificationResult = {
+          rawEmail: email,
+          normalizedEmail: raw,
+          domain,
+          isValid,
+          hasValidSyntax: true,
+          hasMxRecords: data.mx_found === 'true' || data.mx_found === true,
+          isDisposable: zbSubStatus === 'disposable',
+          isRoleBased,
+          verificationStatus,
+          verificationLevel: 'DELIVERABILITY',
+          confidence,
+          provider: this.name,
+          providerStatus: 'READY',
+          details: {
+            zeroBounceStatus: data.status,
+            zeroBounceSubStatus: data.sub_status,
+            mxRecord: data.mx_record,
+            didYouMean: data.did_you_mean,
+            processedAt: data.processed_at,
+          },
+        };
+
+        // Save to cache asynchronously
+        contactVerificationCache.saveEmailVerification(raw, result).catch((err) => {
+          console.warn('[ZeroBounce] Failed to save verification to cache:', err);
+        });
+
+        return result;
+      } catch (err: any) {
+        this.recordFailure();
+        const isTimeout = err.name === 'TimeoutError' || err.message?.includes('timeout') || err.message?.includes('aborted');
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 600 * attempt));
+          continue;
+        }
+
+        return {
+          rawEmail: email,
+          normalizedEmail: raw,
+          domain,
+          isValid: false,
+          hasValidSyntax: true,
+          hasMxRecords: null,
+          isDisposable: false,
+          isRoleBased,
+          verificationStatus: 'UNAVAILABLE',
+          verificationLevel: 'SYNTAX',
+          confidence: 0,
+          provider: this.name,
+          providerStatus: isTimeout ? 'TIMEOUT' : 'PROVIDER_ERROR',
+          errorCode: isTimeout ? 'TIMEOUT' : (err.code || 'FETCH_ERROR'),
+          details: { error: err.message },
+        };
+      }
+    }
+
+    return {
+      rawEmail: email,
+      normalizedEmail: raw,
+      domain,
+      isValid: false,
+      hasValidSyntax: false,
+      hasMxRecords: null,
+      isDisposable: false,
+      isRoleBased,
+      verificationStatus: 'UNAVAILABLE',
+      verificationLevel: 'SYNTAX',
+      confidence: 0,
+      provider: this.name,
+      providerStatus: 'PROVIDER_ERROR',
+    };
   }
 }
 

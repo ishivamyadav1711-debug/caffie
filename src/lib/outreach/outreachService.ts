@@ -13,6 +13,8 @@ export interface OutreachExecutionResult {
   status: 'SENT' | 'QUEUED' | 'FAILED' | 'SUPPRESSED';
   provider: string;
   providerMessageId?: string;
+  gmailMessageId?: string;
+  gmailThreadId?: string;
   subject?: string;
   message: string;
   evidenceUsed: string[];
@@ -144,6 +146,16 @@ export class OutreachService {
     }
 
     // 4. Create PENDING Outreach record in Database
+    // If campaign has a senderAccountId, link the outreach to it
+    let campaignSenderAccountId: string | undefined;
+    if (campaignId) {
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: campaignId },
+        select: { senderAccountId: true },
+      });
+      campaignSenderAccountId = campaign?.senderAccountId ?? undefined;
+    }
+
     const outreachRecord = await prisma.outreach.create({
       data: {
         businessId: leadId,
@@ -156,6 +168,7 @@ export class OutreachService {
         verificationStatus: 'VERIFIED',
         evidenceUsed: JSON.stringify(generated.evidenceUsed),
         excelSyncStatus: 'PENDING',
+        senderAccountId: campaignSenderAccountId ?? null,
       },
     });
 
@@ -175,16 +188,34 @@ export class OutreachService {
     let sendResult: SendResult;
 
     if (selectedChannel === 'EMAIL') {
-      const provider = OutreachProviderFactory.getEmailProvider();
-      sendResult = await provider.sendEmail({
-        to: recipient,
-        subject: generated.subject,
-        bodyText: generated.bodyText,
-        bodyHtml: generated.bodyHtml,
-        businessName: generated.businessName,
-        leadId,
-        idempotencyKey,
-      });
+      // Determine whether to use Gmail or legacy provider
+      if (campaignSenderAccountId && userId) {
+        // Gmail campaign — use Gmail provider exclusively, NO Resend/SendGrid fallback
+        const gmailProvider = OutreachProviderFactory.getGmailProvider();
+        sendResult = await gmailProvider.sendEmail({
+          to: recipient,
+          subject: generated.subject,
+          bodyText: generated.bodyText,
+          bodyHtml: generated.bodyHtml,
+          businessName: generated.businessName,
+          leadId,
+          idempotencyKey,
+          senderAccountId: campaignSenderAccountId,
+          userId,
+        } as any);
+      } else {
+        // Legacy path — Resend/SendGrid (no senderAccount linked)
+        const provider = OutreachProviderFactory.getEmailProvider();
+        sendResult = await provider.sendEmail({
+          to: recipient,
+          subject: generated.subject,
+          bodyText: generated.bodyText,
+          bodyHtml: generated.bodyHtml,
+          businessName: generated.businessName,
+          leadId,
+          idempotencyKey,
+        });
+      }
     } else if (selectedChannel === 'SMS') {
       const provider = OutreachProviderFactory.getSmsProvider();
       sendResult = await provider.sendSms({
@@ -212,6 +243,13 @@ export class OutreachService {
           status: 'SENT',
           provider: sendResult.provider,
           providerMessageId: sendResult.providerMessageId,
+          // Persist Gmail messageId and threadId if available
+          ...(sendResult.gmailMessageId
+            ? { gmailMessageId: sendResult.gmailMessageId }
+            : {}),
+          ...(sendResult.gmailThreadId
+            ? { gmailThreadId: sendResult.gmailThreadId }
+            : {}),
           sentAt: now,
           excelSyncStatus: 'SYNCED',
         },
@@ -234,6 +272,8 @@ export class OutreachService {
           provider: sendResult.provider,
           metadata: JSON.stringify({
             providerMessageId: sendResult.providerMessageId,
+            gmailMessageId: sendResult.gmailMessageId,
+            gmailThreadId: sendResult.gmailThreadId,
             sentAt: now.toISOString(),
           }),
         },
@@ -247,6 +287,8 @@ export class OutreachService {
         status: 'SENT',
         provider: sendResult.provider,
         providerMessageId: sendResult.providerMessageId,
+        gmailMessageId: sendResult.gmailMessageId,
+        gmailThreadId: sendResult.gmailThreadId,
         subject,
         message: messageText,
         evidenceUsed: generated.evidenceUsed,

@@ -214,6 +214,55 @@ export const OSM_INDUSTRY_MAPPINGS: Record<string, OsmTagCondition[]> = {
     { key: 'craft', value: 'electronics_repair' },
     { key: 'craft', value: 'handyman' }
   ],
+  'plumber': [
+    { key: 'craft', value: 'plumber' },
+    { key: 'shop', value: 'plumbing' },
+    { key: 'shop', value: 'trade' },
+    { key: 'craft', value: 'handyman' },
+    { key: 'craft', value: 'pipefitter' }
+  ],
+  'plumbers': [
+    { key: 'craft', value: 'plumber' },
+    { key: 'shop', value: 'plumbing' },
+    { key: 'shop', value: 'trade' },
+    { key: 'craft', value: 'handyman' },
+    { key: 'craft', value: 'pipefitter' }
+  ],
+  'plumbing': [
+    { key: 'craft', value: 'plumber' },
+    { key: 'shop', value: 'plumbing' },
+    { key: 'shop', value: 'trade' }
+  ],
+  'electrician': [
+    { key: 'craft', value: 'electrician' },
+    { key: 'shop', value: 'electrical' }
+  ],
+  'electricians': [
+    { key: 'craft', value: 'electrician' },
+    { key: 'shop', value: 'electrical' }
+  ],
+  'carpenter': [
+    { key: 'craft', value: 'carpenter' }
+  ],
+  'carpenters': [
+    { key: 'craft', value: 'carpenter' }
+  ],
+  'painter': [
+    { key: 'craft', value: 'painter' }
+  ],
+  'painters': [
+    { key: 'craft', value: 'painter' }
+  ],
+  'locksmith': [
+    { key: 'craft', value: 'locksmith' }
+  ],
+  'locksmiths': [
+    { key: 'craft', value: 'locksmith' }
+  ],
+  'hvac': [
+    { key: 'craft', value: 'hvac' },
+    { key: 'craft', value: 'air_conditioning' }
+  ],
   'construction': [
     { key: 'craft', value: 'builder' },
     { key: 'office', value: 'architect' }
@@ -301,11 +350,14 @@ export function getOsmTagsForIndustry(industry: string): OsmTagCondition[] {
     return OSM_INDUSTRY_MAPPINGS[plural];
   }
 
-  // Exact fallback if custom industry provided
+  // Comprehensive fallback for custom / unmapped industries
+  const formatted = normalized.replace(/\s+/g, '_');
   return [
-    { key: 'amenity', value: normalized.replace(/\s+/g, '_') },
-    { key: 'shop', value: normalized.replace(/\s+/g, '_') },
-    { key: 'tourism', value: normalized.replace(/\s+/g, '_') }
+    { key: 'craft', value: formatted },
+    { key: 'shop', value: formatted },
+    { key: 'amenity', value: formatted },
+    { key: 'office', value: formatted },
+    { key: 'tourism', value: formatted }
   ];
 }
 
