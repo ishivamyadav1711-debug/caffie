@@ -46,8 +46,8 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
         bbox = await resolveIndiaLocation(params.state, params.city);
       }
 
-      // 3. Circuit breaker + strict timeout
-      const effectiveTimeout = Math.max(timeouts.osmFastMs || 4000, 4000);
+      // 3. Circuit breaker + bounded timeout (aligned with ProviderManager 10s budget)
+      const effectiveTimeout = Math.max(timeouts.osmFastMs || 8000, 8000);
       const discovery = await osmCircuitBreaker.execute(async () => {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => {

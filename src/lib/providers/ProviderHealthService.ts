@@ -27,9 +27,10 @@ export class ProviderHealthService {
    * Checks the health and readiness of external business discovery providers.
    */
   public checkHealth(): SystemProvidersHealth {
-    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const rawGoogleKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const googleApiKey = rawGoogleKey ? rawGoogleKey.trim().replace(/^["']|["']$/g, '').trim() : '';
     const isGoogleEnabled = process.env.GOOGLE_PLACES_ENABLED !== 'false';
-    const isGoogleConfigured = Boolean(googleApiKey && googleApiKey.trim().length > 0);
+    const isGoogleConfigured = Boolean(googleApiKey && googleApiKey.length > 0);
     const isGoogleCircuitOpen = googlePlacesCircuitBreaker.getState() === 'OPEN';
     const budgetCheck = googleUsageTracker.canExecuteGoogleRequest();
 

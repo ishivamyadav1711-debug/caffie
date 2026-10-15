@@ -59,6 +59,10 @@ export class CircuitBreaker {
     }
   }
 
+  public reset(): void {
+    this.transitionTo('CLOSED');
+  }
+
   public recordFailure(error?: any): void {
     this.lastFailureTime = Date.now();
     this.failureCount++;

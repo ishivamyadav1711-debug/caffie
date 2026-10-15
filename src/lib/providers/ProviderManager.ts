@@ -16,10 +16,14 @@ export interface ProviderStatItem {
     | 'PARTIAL'
     | 'FAILED'
     | 'DISABLED'
+    | 'NOT_CONFIGURED'
     | 'PROVIDER_NOT_CONFIGURED'
     | 'PROVIDER_FAILURE'
     | 'NO_RESULTS'
-    | 'NOT_NEEDED';
+    | 'NOT_NEEDED'
+    | 'AUTH_FAILED'
+    | 'RATE_LIMITED'
+    | 'REQUEST_FAILED';
   rawCount: number;
   discovered?: number;
   pagesRequested?: number;
@@ -320,21 +324,27 @@ export class ProviderManager {
       result.overallStatus = result.totalDiscovered >= requestedLimit ? 'COMPLETE' : 'PARTIAL';
       result.statusReason = `Discovered ${result.totalDiscovered} candidates (Google Places: ${result.providers.googlePlaces.rawCount}, OSM: ${result.providers.osm.rawCount}, Web: ${result.providers.webSearch.rawCount}).`;
     } else {
-      if (
-        (gStatus === 'DISABLED' || gStatus === 'PROVIDER_NOT_CONFIGURED') &&
-        (oStatus === 'FAILED' || oStatus === 'PROVIDER_FAILURE')
+      const gFailed = ['FAILED', 'PROVIDER_FAILURE', 'AUTH_FAILED', 'RATE_LIMITED', 'REQUEST_FAILED'].includes(gStatus);
+      const oFailed = ['FAILED', 'PROVIDER_FAILURE', 'RATE_LIMITED', 'REQUEST_FAILED'].includes(oStatus);
+
+      if (gFailed && oFailed) {
+        result.overallStatus = 'PROVIDER_FAILURE';
+        result.statusReason = `All business discovery providers encountered errors (Google Places: ${gStatus}, OSM: ${oStatus}).`;
+      } else if (
+        (gStatus === 'DISABLED' || gStatus === 'NOT_CONFIGURED' || gStatus === 'PROVIDER_NOT_CONFIGURED') &&
+        oFailed
       ) {
         result.overallStatus = 'PROVIDER_FAILURE';
-        result.statusReason = 'Google Places is disabled/not configured and OpenStreetMap fallback failed.';
-      } else if (gStatus === 'DISABLED' && oStatus === 'DISABLED') {
+        result.statusReason = `Google Places is not configured and OpenStreetMap fallback failed (${oStatus}).`;
+      } else if (
+        (gStatus === 'DISABLED' || gStatus === 'NOT_CONFIGURED' || gStatus === 'PROVIDER_NOT_CONFIGURED') &&
+        oStatus === 'DISABLED'
+      ) {
         result.overallStatus = 'PROVIDER_NOT_CONFIGURED';
         result.statusReason = 'No business discovery providers are configured on the server.';
-      } else if (
-        (gStatus === 'FAILED' || gStatus === 'PROVIDER_FAILURE') &&
-        (oStatus === 'FAILED' || oStatus === 'PROVIDER_FAILURE')
-      ) {
-        result.overallStatus = 'PROVIDER_FAILURE';
-        result.statusReason = 'All business discovery providers encountered errors or timed out.';
+      } else if (gStatus === 'AUTH_FAILED' && oStatus === 'NO_RESULTS') {
+        result.overallStatus = 'NO_RESULTS';
+        result.statusReason = `Google Places authentication failed (HTTP 403). OpenStreetMap searched successfully but found zero business records for ${params.industry} in ${params.city || params.state}.`;
       } else {
         result.overallStatus = 'NO_RESULTS';
         result.statusReason = `No business records found for ${params.industry} in ${params.city || params.state}.`;

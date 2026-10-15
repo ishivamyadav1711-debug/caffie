@@ -64,27 +64,32 @@ export interface OverpassDiscoveryResult {
 const CACHE_TTL_MS = 20 * 60 * 1000;
 const overpassCache = new Map<string, { result: OverpassDiscoveryResult; timestamp: number }>();
 
+export function clearOverpassCache(): void {
+  overpassCache.clear();
+}
+
 /**
  * Returns prioritized Overpass endpoint pool.
  */
 function getEndpointPool(): string[] {
-  const primary = process.env.OVERPASS_API_URL || 'https://lz4.overpass-api.de/api/interpreter';
-  const fallbacksStr = process.env.OVERPASS_API_FALLBACKS || '';
+  const primary = (process.env.OVERPASS_API_URL || '').replace(/^["']|["']$/g, '').trim();
+  const fallbacksStr = (process.env.OVERPASS_API_FALLBACKS || '').replace(/^["']|["']$/g, '').trim();
   const parsedFallbacks = fallbacksStr
-    ? fallbacksStr.split(',').map((s) => s.trim()).filter(Boolean)
+    ? fallbacksStr.split(',').map((s) => s.replace(/^["']|["']$/g, '').trim()).filter(Boolean)
     : [];
 
-  const defaults = [
+  // Prioritize high-performance, independent community mirrors first to avoid German cluster 502 outages
+  const candidates = [
+    'https://overpass.openstreetmap.fr/api/interpreter',
     primary,
     'https://lz4.overpass-api.de/api/interpreter',
     'https://overpass-api.de/api/interpreter',
     'https://z.overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
     ...parsedFallbacks,
-  ];
+  ].filter((url): url is string => Boolean(url && url.startsWith('http')));
 
-  return Array.from(new Set(defaults));
+  return Array.from(new Set(candidates));
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -191,58 +196,54 @@ function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: numbe
  */
 async function executeOverpassQuery(overpassQl: string): Promise<OverpassExecutionResult> {
   const endpoints = getEndpointPool();
-  const timeoutMs = parseInt(process.env.OVERPASS_TIMEOUT_MS || '25000', 10);
+  // Bound individual endpoint timeout to 4000ms so slow/dead instances quickly fail over
+  const perEndpointTimeoutMs = Math.min(
+    Math.max(parseInt(process.env.OVERPASS_ENDPOINT_TIMEOUT_MS || '4000', 10), 2500),
+    5000
+  );
   let lastError = '';
 
   for (const endpoint of endpoints) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), perEndpointTimeoutMs);
 
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'LeadPilot-Engine/2.1 (contact: engineering@leadpilot.app; real-time business discovery)',
-            'Accept': 'application/json',
-          },
-          body: 'data=' + encodeURIComponent(overpassQl),
-          signal: controller.signal,
-        });
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'LeadPilot-Engine/2.1 (contact: engineering@leadpilot.app; real-time business discovery)',
+          'Accept': 'application/json',
+        },
+        body: 'data=' + encodeURIComponent(overpassQl),
+        signal: controller.signal,
+      });
 
-        clearTimeout(timer);
+      clearTimeout(timer);
 
-        if (res.ok) {
-          const text = await res.text();
-          if (text.trim().startsWith('{')) {
-            const data: OverpassResponse = JSON.parse(text);
-            if (data && Array.isArray(data.elements)) {
-              return {
-                elements: data.elements,
-                remark: data.remark,
-                endpoint,
-                query: overpassQl,
-              };
-            }
-          } else {
-            lastError = `Endpoint ${endpoint} returned non-JSON response (${text.slice(0, 120)}...)`;
-            break;
+      if (res.ok) {
+        const text = await res.text();
+        if (text.trim().startsWith('{')) {
+          const data: OverpassResponse = JSON.parse(text);
+          if (data && Array.isArray(data.elements)) {
+            return {
+              elements: data.elements,
+              remark: data.remark,
+              endpoint,
+              query: overpassQl,
+            };
           }
         } else {
-          lastError = `Endpoint ${endpoint} returned HTTP ${res.status}`;
-          if (res.status === 429) {
-            await sleep(attempt * 400);
-            break;
-          }
-          if (res.status >= 500) {
-            await sleep(attempt * 300);
-          }
+          lastError = `Endpoint ${endpoint} returned non-JSON response (${text.slice(0, 120)}...)`;
+          continue;
         }
-      } catch (err: any) {
-        lastError = err.name === 'AbortError' ? `Timeout (${timeoutMs}ms)` : err.message || 'Fetch failed';
-        await sleep(attempt * 250);
+      } else {
+        lastError = `Endpoint ${endpoint} returned HTTP ${res.status}`;
+        continue;
       }
+    } catch (err: any) {
+      lastError = err.name === 'AbortError' ? `Timeout (${perEndpointTimeoutMs}ms)` : err.message || 'Fetch failed';
+      continue;
     }
   }
 
@@ -409,12 +410,19 @@ out center qt ${queryLimit};`;
       return await executeOverpassQuery(stateQl);
     } catch (stErr: any) {
       // Final edge fallback: Query Nominatim for state
-      const nomElements = await queryNominatimOsm(`${industry} in ${cleanCity ? `${cleanCity}, ` : ''}${state}`, queryLimit);
-      return {
-        elements: nomElements,
-        endpoint: 'https://nominatim.openstreetmap.org/search',
-        query: `${industry} in ${state}`,
-      };
+      try {
+        const nomElements = await queryNominatimOsm(`${industry} in ${cleanCity ? `${cleanCity}, ` : ''}${state}`, queryLimit);
+        if (nomElements.length > 0) {
+          return {
+            elements: nomElements,
+            endpoint: 'https://nominatim.openstreetmap.org/search',
+            query: `${industry} in ${state}`,
+          };
+        }
+      } catch {
+        // Fall through to rethrow Overpass error
+      }
+      throw stErr;
     }
   });
 

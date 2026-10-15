@@ -28,8 +28,9 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
   }
 
   public isConfigured(): boolean {
-    const key = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
-    return Boolean(key && key.trim().length > 0 && process.env.GOOGLE_PLACES_ENABLED !== 'false');
+    const rawKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const key = rawKey ? rawKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+    return Boolean(key && key.length > 0 && process.env.GOOGLE_PLACES_ENABLED !== 'false');
   }
 
   private static simulateTimeout: boolean = false;
@@ -211,7 +212,8 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
     }
 
     // 1. Configuration check (DO NOT silently swallow missing API key!)
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const rawApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const apiKey = rawApiKey ? rawApiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
     const isEnabled = process.env.GOOGLE_PLACES_ENABLED !== 'false';
 
     if (!isEnabled) {
@@ -230,7 +232,7 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
       };
     }
 
-    if (!apiKey || apiKey.trim().length === 0) {
+    if (!apiKey || apiKey.length === 0) {
       return {
         providerId: this.providerId,
         providerName: this.name,
@@ -549,10 +551,17 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
       const durationMs = Date.now() - startTime;
       const errMsg = err.message || '';
       const isTimeout = err.name === 'AbortError' || errMsg.includes('timeout') || errMsg.includes('timed out');
-      const isAuth = err.status === 401 || err.status === 403 || errMsg.includes('401') || errMsg.includes('403') || errMsg.includes('API key') || errMsg.includes('PERMISSION_DENIED');
+      const isAuth = err.status === 401 || err.status === 403 || errMsg.includes('401') || errMsg.includes('403') || errMsg.includes('API key') || errMsg.includes('PERMISSION_DENIED') || errMsg.includes('API_KEY_INVALID');
       const isRate = err.status === 429 || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota') || errMsg.includes('QUOTA');
       const status: 'AUTH_FAILED' | 'RATE_LIMITED' | 'REQUEST_FAILED' = isAuth ? 'AUTH_FAILED' : isRate ? 'RATE_LIMITED' : 'REQUEST_FAILED';
       console.warn(`[GooglePlacesDiscoveryProvider] Query failed (${status}): ${errMsg}`);
+
+      let authReason = `Google Places authentication failed: ${errMsg}`;
+      if (errMsg.includes('403') || errMsg.includes('PERMISSION_DENIED') || errMsg.includes('caller does not have permission')) {
+        authReason = `Google Places authentication failed (HTTP 403 PERMISSION_DENIED). Check Google Cloud Console: ensure 'Places API (New)' is enabled, API key restrictions include Places API (New), and billing is active.`;
+      } else if (errMsg.includes('400') || errMsg.includes('API_KEY_INVALID')) {
+        authReason = `Google Places API key is invalid (HTTP 400 API_KEY_INVALID). Check that GOOGLE_PLACES_API_KEY does not have extraneous quotes or characters.`;
+      }
 
       return {
         providerId: this.providerId,
@@ -565,7 +574,7 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
         statusReason: isTimeout
           ? `Google Places timed out after ${effectiveTimeout}ms.`
           : isAuth
-          ? `Google Places authentication failed: ${errMsg}`
+          ? authReason
           : isRate
           ? `Google Places rate limited or quota exceeded: ${errMsg}`
           : `Google Places provider failure: ${errMsg}`,
