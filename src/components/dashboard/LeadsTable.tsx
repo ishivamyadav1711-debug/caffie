@@ -77,9 +77,17 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [showAuditPanel, setShowAuditPanel] = useState(false);
+  const [isDebugMode, setIsDebugMode] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
   const [showBulkOutreachModal, setShowBulkOutreachModal] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setIsDebugMode(params.get('debug') === 'true' || params.get('dev') === 'true');
+    }
+  }, []);
 
   const toggleSelectLead = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -506,97 +514,65 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
         </div>
       </div>
 
-      {/* 1.5 DIAGNOSTIC PIPELINE STATUS BAR (TRANSPARENCY) */}
-      {hasSearched && !isSearching && (pipelineStats || pipelineBreakdown) && (
-        <div className="px-5 py-2.5 bg-slate-900 text-slate-300 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-[11.5px]">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-white flex items-center gap-1.5">
+      {/* 1.5 CLEAN USER-FACING SEARCH RESULTS STATUS BAR */}
+      {hasSearched && !isSearching && (
+        <div className="px-5 py-2.5 bg-slate-900 text-slate-300 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-[12px]">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Primary Provider & Mode Badge */}
+            <span className="font-semibold text-white flex items-center gap-1.5 bg-slate-800/90 px-3 py-1 rounded-lg border border-slate-700/80 shadow-2xs">
               <span className={`w-2 h-2 rounded-full ${
                 isRapidDemo
                   ? 'bg-amber-400'
-                  : searchStatus === 'COMPLETE'
-                  ? 'bg-teal-400'
-                  : searchStatus === 'PROVIDER_FAILURE'
-                  ? 'bg-rose-400'
-                  : searchStatus === 'PROVIDER_NOT_CONFIGURED'
-                  ? 'bg-amber-400'
-                  : 'bg-blue-400 animate-pulse'
+                  : 'bg-emerald-400 animate-pulse'
               }`} />
-              {providerLabel}
+              <span>{isRapidDemo ? 'RapidAPI Maps Data (Demo Mode)' : 'RapidAPI Maps Data (Live)'}</span>
             </span>
-            <span className="text-slate-600">|</span>
-            <span>RapidAPI: <strong className="text-white">
-              {rapidStatus === 'DEMO_MOCK' || isRapidDemo
-                ? (rapidCount > 0 ? `Demo Mock (${rapidCount})` : 'Demo Mock')
-                : rapidStatus === 'COMPLETE' || rapidStatus === 'SUCCESS' || rapidStatus === 'PARTIAL'
-                ? (rapidCount > 0 ? `LIVE (${rapidCount})` : 'Active')
-                : rapidStatus === 'RATE_LIMITED'
-                ? 'Rate Limited'
-                : rapidStatus === 'AUTH_FAILED'
-                ? 'Auth Failed'
-                : rapidStatus === 'FAILED'
-                ? 'Failed'
-                : rapidStatus}
-            </strong></span>
-            <span>•</span>
-            <span>OSM: <strong className="text-white">
-              {osmStatus === 'COMPLETE' || osmStatus === 'SUCCESS'
-                ? (osmCount > 0 ? `Active (${osmCount})` : 'Active')
-                : osmStatus === 'NO_RESULTS'
-                ? 'No Results'
-                : osmStatus === 'NOT_CONFIGURED' || osmStatus === 'DISABLED'
-                ? 'Disabled'
-                : osmStatus === 'RATE_LIMITED'
-                ? 'Rate Limited'
-                : osmStatus === 'REQUEST_FAILED' || osmStatus === 'FAILED'
-                ? 'Failed'
-                : osmStatus === 'SUPPLEMENTAL' || osmStatus === 'NOT_NEEDED'
-                ? (osmCount > 0 ? `Active (${osmCount})` : 'Supplemental')
-                : osmStatus}
-            </strong></span>
-            <span>•</span>
-            <span>Google: <strong className="text-white">
-              {googleStatus === 'DISABLED' || googleStatus === 'PROVIDER_NOT_CONFIGURED' || googleStatus === 'NOT_CONFIGURED'
-                ? 'Disabled'
-                : googleStatus === 'COMPLETE' || googleStatus === 'SUCCESS'
-                ? (googleCount > 0 ? `Active (${googleCount})` : 'Active')
-                : googleStatus}
-            </strong></span>
-            <span>•</span>
-            <span>Merged: <strong className="text-white">{mergedUnique}</strong></span>
-            <span>•</span>
-            <span>Enriched: <strong className="text-white">{enrichedCount}</strong></span>
-            <span>•</span>
-            <span>Delivered: <strong className="text-teal-300 font-bold">{leads.length}</strong> / {requestedLimit}</span>
+
+            {/* Requested Limit vs Delivered Results */}
+            <span className="bg-slate-800/90 px-3 py-1 rounded-lg border border-slate-700/80 text-slate-300">
+              Delivered: <strong className="text-teal-300 font-bold">{leads.length}</strong> / {requestedLimit} leads
+            </span>
+
+            {/* Concise explanation when fewer leads qualified */}
+            {leads.length < requestedLimit && (
+              <span className="text-slate-400 italic text-[11.5px]">
+                ({leads.length === 0 ? 'No businesses matched your specific filters in this area.' : `${leads.length} verified ${leads.length === 1 ? 'business' : 'businesses'} qualified in this area.`})
+              </span>
+            )}
+
+            {/* Developer-only pipeline metrics (only visible when ?debug=true) */}
+            {isDebugMode && (
+              <span className="text-[11px] text-amber-300/90 bg-amber-950/40 px-2.5 py-0.5 rounded border border-amber-800/50">
+                [DEV] RapidAPI: {rapidCount} | OSM: {osmCount} | Merged: {mergedUnique}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5">
-            {rejectedCandidates && rejectedCandidates.length > 0 && (
-
-
+            {/* Developer-only candidate diagnostics toggle (only visible when ?debug=true) */}
+            {isDebugMode && rejectedCandidates && rejectedCandidates.length > 0 && (
               <button
                 type="button"
                 onClick={() => setShowAuditPanel(!showAuditPanel)}
-                className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer border border-slate-700"
-                title="View detailed pipeline audit & candidate diagnostics"
+                className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-amber-950/40 text-amber-300 hover:text-white hover:bg-amber-900/60 transition-colors flex items-center gap-1.5 cursor-pointer border border-amber-800/60"
+                title="Developer Candidate Diagnostics"
               >
-                <span>View Search Details ({rejectedCandidates.length})</span>
+                <span>[Dev] Diagnostics ({rejectedCandidates.length})</span>
                 {showAuditPanel ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               </button>
             )}
 
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
               searchStatus === 'COMPLETE' ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
             }`}>
               Status: {searchStatus || 'COMPLETE'}
             </span>
-            {statusReason && <span className="text-slate-400 italic text-[11px] max-w-md truncate hidden md:inline">({statusReason})</span>}
           </div>
         </div>
       )}
 
-      {/* 1.6 COLLAPSIBLE REJECTIONS AUDIT PANEL (WHEN TOGGLED) */}
-      {showAuditPanel && rejectedCandidates && rejectedCandidates.length > 0 && (
+      {/* 1.6 DEVELOPER AUDIT PANEL (SECURE: ONLY VISIBLE WHEN isDebugMode IS TRUE AND TOGGLED) */}
+      {isDebugMode && showAuditPanel && rejectedCandidates && rejectedCandidates.length > 0 && (
         <div className="bg-[#0F172A] text-slate-200 border-b border-slate-800 p-5 space-y-4 text-[12px] animate-fade-in">
           <div className="flex items-center justify-between">
             <h4 className="font-bold text-white text-[13px] uppercase tracking-wider flex items-center gap-2">

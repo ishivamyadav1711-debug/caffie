@@ -327,7 +327,7 @@ export class LeadPilotOrchestrator {
 
       // --- STAGE 1: Fast Business Discovery (RapidAPI Primary + Multi-Provider Fallback) ---
       const maxCeiling = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
-      const targetDiscoveryPool = Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling * 2);
+      const targetDiscoveryPool = Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling);
       timestamps.googleStart = Date.now();
       const discoveryOutput = await this.executeTrackedActor(
         businessDiscoveryActor,
@@ -548,7 +548,7 @@ export class LeadPilotOrchestrator {
       }
 
       if (candidatesNeedingEmail.length > 0) {
-        const poolLimit = Math.min(candidatesNeedingEmail.length, Math.max(job.requestedLeads * 2, 25));
+        const poolLimit = Math.min(candidatesNeedingEmail.length, Math.min(Math.max(job.requestedLeads * 2, 8), maxCeiling));
         this.logProgress(
           job,
           'email_enrichment',
@@ -625,7 +625,7 @@ export class LeadPilotOrchestrator {
         const candidateUrls = contactPassedCandidates
           .map((b) => b.website)
           .filter((u): u is string => Boolean(u && u.trim().length > 0))
-          .slice(0, Math.max(job.requestedLeads * 2, 40));
+          .slice(0, Math.min(contactPassedCandidates.length, Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling)));
 
         if (candidateUrls.length > 0) {
           this.logProgress(
@@ -646,7 +646,7 @@ export class LeadPilotOrchestrator {
         Number(process.env.CANDIDATE_PROCESSING_CONCURRENCY) || 12,
         20
       );
-      const targetQualifiedQuota = Math.max(job.requestedLeads * 2, 25);
+      const targetQualifiedQuota = Math.min(contactPassedCandidates.length, Math.min(Math.max(job.requestedLeads * 2, 8), maxCeiling));
       const evaluatedIndices = new Set<number>();
       let candidateQueueIndex = 0;
 

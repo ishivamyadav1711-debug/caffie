@@ -87,7 +87,7 @@ export class ProviderManager {
     const maxLeadsLimit = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
     const requestedLimit = Math.min(Math.max(Number(params.limit) || 10, 1), maxLeadsLimit);
     // Bounded candidate pool respecting max leads ceiling
-    const targetPool = Math.min(Math.max(requestedLimit * 2, 10), maxLeadsLimit);
+    const targetPool = requestedLimit;
 
     const health: SystemProvidersHealth = providerHealthService.checkHealth();
 
