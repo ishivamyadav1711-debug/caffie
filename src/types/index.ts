@@ -1,3 +1,5 @@
+import type { FinancialEligibilityResult } from '@/lib/financial/types';
+
 export type WebsiteStatus = 
   | 'No Website' 
   | 'NO_WEBSITE'
@@ -236,6 +238,7 @@ export interface SearchRequestPayload {
   excludePerfectRating?: boolean;
   requirePositiveReviewEvidence?: boolean;
   reviewSort?: ReviewSortOption;
+  highNetWorthFilter?: boolean;
 }
 
 export type LeadStatus = 'New' | 'In Review' | 'Contacted' | 'Qualified' | 'Unresponsive';
@@ -267,6 +270,8 @@ export interface Lead {
   reviews?: LeadReview[];
   commercialMilestones?: any[];
   firstKnownGmvDate?: string | null;
+  financialEligibility?: FinancialEligibilityResult;
+  isHighNetWorthQualified?: boolean;
   osmType?: 'node' | 'way' | 'relation';
   osmId?: number | string;
   placeId?: string;

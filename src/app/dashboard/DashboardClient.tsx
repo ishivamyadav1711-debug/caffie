@@ -148,6 +148,7 @@ export default function DashboardClient() {
           excludePerfectRating: criteria.excludePerfectRating,
           requirePositiveReviewEvidence: criteria.requirePositiveReviewEvidence,
           reviewSort: criteria.reviewSort,
+          highNetWorthFilter: criteria.highNetWorthFilter,
           sync: true,
         }),
       });

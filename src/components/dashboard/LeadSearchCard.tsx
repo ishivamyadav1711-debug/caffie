@@ -15,7 +15,8 @@ import {
   ShieldCheck,
   Star,
   SlidersHorizontal,
-  Compass
+  Compass,
+  Sparkles
 } from 'lucide-react';
 import { ContactFilter, WebsiteFilter, NumberOfLeads, ReviewSortOption } from '@/types';
 import { 
@@ -37,6 +38,7 @@ export interface LeadFilterCriteria {
   excludePerfectRating?: boolean;
   requirePositiveReviewEvidence?: boolean;
   reviewSort?: ReviewSortOption;
+  highNetWorthFilter?: boolean;
 }
 
 interface LeadSearchCardProps {
@@ -97,6 +99,10 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   );
   const [reviewSort, setReviewSort] = useState<ReviewSortOption>(
     initialCriteria?.reviewSort || 'default'
+  );
+  // 8. EXPERIMENTAL HIGH-NET-WORTH BUSINESS FILTER (₹70 Crore INR threshold, default OFF)
+  const [highNetWorthFilter, setHighNetWorthFilter] = useState<boolean>(
+    initialCriteria?.highNetWorthFilter ?? false
   );
 
   // Background automated multi-step crawler progress
@@ -235,6 +241,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
       excludePerfectRating,
       requirePositiveReviewEvidence,
       reviewSort,
+      highNetWorthFilter,
     };
 
     setTimeout(() => setCurrentStepIndex(1), 500);
@@ -481,6 +488,59 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
 
 
 
+        {/* Experimental High-Net-Worth Business Filter Toggle */}
+        <div className={`p-3.5 rounded-xl border transition-all ${
+          highNetWorthFilter 
+            ? 'bg-gradient-to-r from-violet-50/80 via-purple-50/40 to-amber-50/50 border-violet-300 ring-1 ring-violet-400/40 shadow-xs' 
+            : 'bg-[#F8FAFC] border-[#E2E8F0]'
+        }`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                highNetWorthFilter ? 'bg-violet-600 text-white' : 'bg-slate-200 text-slate-600'
+              }`}>
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-bold text-[#0F172A]">
+                    High-Net-Worth Business (Experimental)
+                  </span>
+                  {highNetWorthFilter ? (
+                    <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-300">
+                      ₹70 Cr INR Filter ACTIVE
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
+                      Optional Pro Mode
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11.5px] text-[#64748B] mt-0.5">
+                  Filters businesses with verified public filings (MCA, SEC, SEDAR+, annual disclosures) confirming financial scale or net worth ≥ ₹70 crore INR.
+                  {highNetWorthFilter && (
+                    <span className="block text-violet-700 font-medium mt-1">
+                      Note: Ordinary local businesses without verifiable public filings will be excluded as Insufficient Evidence.
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <label className="relative inline-flex items-center cursor-pointer self-start sm:self-center shrink-0">
+              <input
+                type="checkbox"
+                id="highNetWorthFilterToggle"
+                checked={highNetWorthFilter}
+                onChange={(e) => setHighNetWorthFilter(e.target.checked)}
+                disabled={isSearching}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-600"></div>
+            </label>
+          </div>
+        </div>
+
         {/* Primary Action Button Row */}
         <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="text-[12px] text-[#64748B] flex items-center gap-2">
@@ -493,6 +553,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
               • Contact: <strong className="text-[#0F172A]">{contact}</strong> • Website:{' '}
               <strong className="text-[#0F172A]">{website}</strong>
               {excludePerfectRating && <span className="text-amber-700 ml-1 font-semibold">• Excl 5.0</span>}
+              {highNetWorthFilter && <span className="text-violet-700 ml-1 font-semibold">• High-Net-Worth (₹70+ Cr)</span>}
             </span>
           </div>
 

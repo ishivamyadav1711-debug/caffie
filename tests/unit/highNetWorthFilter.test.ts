@@ -1,0 +1,254 @@
+import { describe, it, expect, vi } from 'vitest';
+import {
+  evaluateFinancialEligibility,
+  METRIC_DESCRIPTIONS,
+} from '@/lib/financial/financialEvidenceEvaluator';
+import {
+  convertToInr,
+  formatInrCrores,
+} from '@/lib/financial/currencyConverter';
+import {
+  HIGH_NET_WORTH_THRESHOLD_INR,
+  FinancialEvidenceRecord,
+  FinancialMetricType,
+} from '@/lib/financial/types';
+import { LeadPilotOrchestrator } from '@/orchestrator/LeadPilotOrchestrator';
+
+describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => {
+  describe('1. Threshold & Constant Definitions', () => {
+    it('defines ₹70 Crore INR threshold exactly as 700,000,000 INR', () => {
+      expect(HIGH_NET_WORTH_THRESHOLD_INR).toBe(700_000_000);
+      expect(formatInrCrores(700_000_000)).toBe('₹70.0 Cr INR');
+    });
+
+    it('formats multi-crore amounts accurately', () => {
+      expect(formatInrCrores(1_500_000_000)).toBe('₹150.0 Cr INR');
+      expect(formatInrCrores(840_000_000)).toBe('₹84.0 Cr INR');
+      expect(formatInrCrores(150_000_000)).toBe('₹15.0 Cr INR');
+    });
+  });
+
+  describe('2. Currency Conversion to INR', () => {
+    it('converts USD to INR using documented benchmark (84.0 INR/USD)', () => {
+      const res = convertToInr(10_000_000, 'USD'); // $10M USD = ₹84 Cr INR
+      expect(res.amountInInr).toBe(840_000_000);
+      expect(res.rateUsed).toBe(84.0);
+      expect(res.thresholdMet).toBe(true);
+      expect(res.conversionMethod).toContain('Interbank reference benchmark');
+    });
+
+    it('converts CAD to INR using documented benchmark (61.5 INR/CAD)', () => {
+      const subThreshold = convertToInr(10_000_000, 'CAD'); // $10M CAD = ₹61.5 Cr INR (< ₹70 Cr)
+      expect(subThreshold.amountInInr).toBe(615_000_000);
+      expect(subThreshold.thresholdMet).toBe(false);
+
+      const aboveThreshold = convertToInr(12_000_000, 'CAD'); // $12M CAD = ₹73.8 Cr INR (>= ₹70 Cr)
+      expect(aboveThreshold.amountInInr).toBe(738_000_000);
+      expect(aboveThreshold.thresholdMet).toBe(true);
+    });
+
+    it('converts EUR to INR using documented benchmark (91.5 INR/EUR)', () => {
+      const res = convertToInr(8_000_000, 'EUR'); // €8M EUR = ₹73.2 Cr INR
+      expect(res.amountInInr).toBe(732_000_000);
+      expect(res.thresholdMet).toBe(true);
+    });
+
+    it('converts GBP to INR using documented benchmark (109.0 INR/GBP)', () => {
+      const res = convertToInr(7_000_000, 'GBP'); // £7M GBP = ₹76.3 Cr INR
+      expect(res.amountInInr).toBe(763_000_000);
+      expect(res.thresholdMet).toBe(true);
+    });
+
+    it('handles direct INR baseline (1.0 rate)', () => {
+      const res = convertToInr(750_000_000, 'INR');
+      expect(res.amountInInr).toBe(750_000_000);
+      expect(res.rateUsed).toBe(1.0);
+      expect(res.thresholdMet).toBe(true);
+    });
+  });
+
+  describe('3. Non-Interchangeability of Financial Metrics', () => {
+    it('distinguishes Net Worth from Revenue, Valuation, and Market Cap', () => {
+      expect(METRIC_DESCRIPTIONS.NET_WORTH.isNetWorth).toBe(true);
+      expect(METRIC_DESCRIPTIONS.REVENUE.isNetWorth).toBe(false);
+      expect(METRIC_DESCRIPTIONS.VALUATION.isNetWorth).toBe(false);
+      expect(METRIC_DESCRIPTIONS.MARKET_CAP.isNetWorth).toBe(false);
+      expect(METRIC_DESCRIPTIONS.ASSETS.isNetWorth).toBe(false);
+    });
+
+    it('labels qualifying Net Worth evidence explicitly as Net Worth', () => {
+      const mockEvidence: FinancialEvidenceRecord[] = [
+        {
+          metricType: 'NET_WORTH',
+          rawAmount: 850_000_000,
+          currency: 'INR',
+          amountInInr: 850_000_000,
+          conversionRateUsed: 1.0,
+          conversionMethod: 'Direct base currency (INR)',
+          conversionDate: '2026-10-01',
+          thresholdMet: true,
+          reportingPeriod: 'FY2023-24',
+          sourceName: 'Ministry of Corporate Affairs (MCA)',
+          sourceUrl: 'https://mca.gov.in',
+          sourceTier: 'TIER_1_REGISTRY',
+          evidenceDate: '2024-03-31',
+        },
+      ];
+
+      const res = evaluateFinancialEligibility(mockEvidence, { businessName: 'Apex Engineering Ltd' });
+      expect(res.eligibilityState).toBe('QUALIFIED');
+      expect(res.isQualified).toBe(true);
+      expect(res.isNetWorth).toBe(true);
+      expect(res.metricLabel).toContain('Verified Net Worth: ₹85.0 Cr INR');
+      expect(res.qualificationExplanation).toContain('Verified Net Worth');
+    });
+
+    it('labels qualifying Revenue evidence accurately as Revenue and NOT as Net Worth', () => {
+      const mockRevenueEvidence: FinancialEvidenceRecord[] = [
+        {
+          metricType: 'REVENUE',
+          rawAmount: 15_000_000,
+          currency: 'USD',
+          amountInInr: 1_260_000_000,
+          conversionRateUsed: 84.0,
+          conversionMethod: 'Interbank reference benchmark',
+          conversionDate: '2026-10-01',
+          thresholdMet: true,
+          reportingPeriod: 'CY2023',
+          sourceName: 'SEC EDGAR 10-K Filing',
+          sourceUrl: 'https://sec.gov/edgar',
+          sourceTier: 'TIER_1_REGISTRY',
+          evidenceDate: '2024-02-28',
+        },
+      ];
+
+      const res = evaluateFinancialEligibility(mockRevenueEvidence, { businessName: 'Omni Retail Inc' });
+      expect(res.eligibilityState).toBe('QUALIFIED');
+      expect(res.isQualified).toBe(true);
+      expect(res.isNetWorth).toBe(false); // MUST be false!
+      expect(res.metricLabel).toContain('Annual Revenue');
+      expect(res.qualificationExplanation).toContain('Note: Metric represents Annual Revenue / Turnover, not Net Worth');
+    });
+
+    it('labels qualifying Valuation evidence accurately as Valuation and NOT as Net Worth', () => {
+      const mockValuationEvidence: FinancialEvidenceRecord[] = [
+        {
+          metricType: 'VALUATION',
+          rawAmount: 20_000_000,
+          currency: 'CAD',
+          amountInInr: 1_230_000_000,
+          conversionRateUsed: 61.5,
+          conversionMethod: 'Interbank reference benchmark',
+          conversionDate: '2026-10-01',
+          thresholdMet: true,
+          reportingPeriod: '2023',
+          sourceName: 'SEDAR+ Filing',
+          sourceUrl: 'https://sedarplus.ca',
+          sourceTier: 'TIER_1_REGISTRY',
+          evidenceDate: '2024-01-15',
+        },
+      ];
+
+      const res = evaluateFinancialEligibility(mockValuationEvidence, { businessName: 'Maple Tech Corp' });
+      expect(res.eligibilityState).toBe('QUALIFIED');
+      expect(res.isQualified).toBe(true);
+      expect(res.isNetWorth).toBe(false);
+      expect(res.metricLabel).toContain('Company Valuation');
+    });
+  });
+
+  describe('4. Insufficient Evidence & Sub-Threshold Evaluation', () => {
+    it('returns INSUFFICIENT_EVIDENCE when evidence is empty or missing', () => {
+      const resEmpty = evaluateFinancialEligibility([]);
+      expect(resEmpty.eligibilityState).toBe('INSUFFICIENT_EVIDENCE');
+      expect(resEmpty.isQualified).toBe(false);
+      expect(resEmpty.qualificationExplanation).toContain('No verifiable public financial filings');
+
+      const resUndefined = evaluateFinancialEligibility(undefined);
+      expect(resUndefined.eligibilityState).toBe('INSUFFICIENT_EVIDENCE');
+      expect(resUndefined.isQualified).toBe(false);
+    });
+
+    it('returns NOT_QUALIFIED when verified financial scale is below ₹70 Cr INR', () => {
+      const subThresholdEvidence: FinancialEvidenceRecord[] = [
+        {
+          metricType: 'NET_WORTH',
+          rawAmount: 250_000_000, // ₹25 Cr INR (< ₹70 Cr)
+          currency: 'INR',
+          amountInInr: 250_000_000,
+          conversionRateUsed: 1.0,
+          conversionMethod: 'Direct base currency (INR)',
+          conversionDate: '2026-10-01',
+          thresholdMet: false,
+          reportingPeriod: 'FY2023-24',
+          sourceName: 'MCA Annual Filing',
+          sourceUrl: 'https://mca.gov.in',
+          sourceTier: 'TIER_1_REGISTRY',
+          evidenceDate: '2024-03-31',
+        },
+      ];
+
+      const res = evaluateFinancialEligibility(subThresholdEvidence, { businessName: 'Kavita Small Enterprises' });
+      expect(res.eligibilityState).toBe('NOT_QUALIFIED');
+      expect(res.isQualified).toBe(false);
+      expect(res.metricLabel).toContain('< ₹70 Cr INR');
+      expect(res.qualificationExplanation).toContain('below the ₹70 Crore INR threshold');
+    });
+
+    it('preserves provenance fields (source URL, tier, reporting period, evidence date)', () => {
+      const record: FinancialEvidenceRecord = {
+        metricType: 'NET_WORTH',
+        rawAmount: 900_000_000,
+        currency: 'INR',
+        amountInInr: 900_000_000,
+        conversionRateUsed: 1.0,
+        conversionMethod: 'Direct base currency (INR)',
+        conversionDate: '2026-10-01',
+        thresholdMet: true,
+        reportingPeriod: 'FY2023-24',
+        sourceName: 'MCA Registry Portal',
+        sourceUrl: 'https://mca.gov.in/filings/12345',
+        sourceTier: 'TIER_1_REGISTRY',
+        evidenceDate: '2024-03-31',
+      };
+
+      const res = evaluateFinancialEligibility([record]);
+      expect(res.evidence).toBeDefined();
+      expect(res.evidence?.sourceUrl).toBe('https://mca.gov.in/filings/12345');
+      expect(res.evidence?.sourceTier).toBe('TIER_1_REGISTRY');
+      expect(res.evidence?.reportingPeriod).toBe('FY2023-24');
+      expect(res.evidence?.evidenceDate).toBe('2024-03-31');
+    });
+  });
+
+  describe('5. Orchestrator Integration & Normal-Search Non-Regression', () => {
+    it('creates a Job with highNetWorthFilter default to false when omitted', () => {
+      const orchestrator = new LeadPilotOrchestrator();
+      const job = orchestrator.createJob({
+        country: 'India',
+        state: 'Maharashtra',
+        city: 'Mumbai',
+        industry: 'Automotive',
+        limit: 10,
+      });
+
+      expect(job.highNetWorthFilter).toBe(false);
+      expect(job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE).toBe(0);
+      expect(job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD).toBe(0);
+    });
+
+    it('creates a Job with highNetWorthFilter true when explicitly requested', () => {
+      const orchestrator = new LeadPilotOrchestrator();
+      const job = orchestrator.createJob({
+        country: 'India',
+        state: 'Maharashtra',
+        city: 'Mumbai',
+        industry: 'Automotive',
+        limit: 10,
+        highNetWorthFilter: true,
+      });
+
+      expect(job.highNetWorthFilter).toBe(true);
+    });
+  });
+});

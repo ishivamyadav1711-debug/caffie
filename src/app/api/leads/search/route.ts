@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
       excludePerfectRating,
       requirePositiveReviewEvidence,
       reviewSort = 'default',
+      highNetWorthFilter,
     } = body;
 
     // 1. Strict Geographic Validation (India, USA, Canada)
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
       excludePerfectRating: Boolean(excludePerfectRating),
       requirePositiveReviewEvidence: Boolean(requirePositiveReviewEvidence),
       reviewSort,
+      highNetWorthFilter: Boolean(highNetWorthFilter),
     };
 
     // If caller explicitly requests pipeline orchestrator engine

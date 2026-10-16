@@ -4,6 +4,7 @@ import {
   WebsiteReachabilityStatus,
 } from './Enums';
 import { Lead as FrontendLead } from '@/types';
+import type { FinancialEligibilityResult } from '@/lib/financial/types';
 
 export interface ContactItem {
   value: string;
@@ -145,6 +146,8 @@ export interface LeadEntity {
   osmId?: string;
   rapidApiId?: string;
   isMock?: boolean;
+  financialEligibility?: FinancialEligibilityResult;
+  isHighNetWorthQualified?: boolean;
   provenance?: Record<string, { value: any; source: string; verified: boolean }>;
 
   createdAt: string;
@@ -195,6 +198,8 @@ export function leadEntityToFrontend(lead: LeadEntity): FrontendLead {
     reviews: isMockRecord ? [] : lead.reviews,
     commercialMilestones: lead.commercialMilestones,
     firstKnownGmvDate: lead.firstKnownGmvDate,
+    financialEligibility: lead.financialEligibility,
+    isHighNetWorthQualified: lead.isHighNetWorthQualified,
     phone: lead.phone,
     email: lead.email,
     emailSource: lead.contacts?.find((c) => c.type === 'email')?.source || (lead.email ? 'official_website' : undefined),

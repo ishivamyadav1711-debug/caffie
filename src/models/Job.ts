@@ -21,6 +21,8 @@ export interface RejectionBreakdown {
   NOT_PROCESSED_BEFORE_DEADLINE?: number;
   TRANSIENT_FAILURE?: number;
   FILTER_MISMATCH?: number;
+  INSUFFICIENT_FINANCIAL_EVIDENCE?: number;
+  BELOW_FINANCIAL_THRESHOLD?: number;
 }
 
 export interface PipelineBreakdown {
@@ -78,7 +80,9 @@ export interface RejectedCandidateItem {
     | 'CONTACT_FILTER_MISMATCH'
     | 'NOT_PROCESSED_BEFORE_DEADLINE'
     | 'TRANSIENT_FAILURE'
-    | 'FILTER_MISMATCH';
+    | 'FILTER_MISMATCH'
+    | 'INSUFFICIENT_FINANCIAL_EVIDENCE'
+    | 'BELOW_FINANCIAL_THRESHOLD';
   reason?: string;
   rejectionDetails?: string;
 }
@@ -98,6 +102,7 @@ export interface Job {
   status: JobStatus;
   criteria: SearchRequestPayload;
   requestedLeads: number;
+  highNetWorthFilter?: boolean;
 
   // Pipeline counters
   discovered: number;

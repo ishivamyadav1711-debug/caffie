@@ -804,7 +804,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                   0 Qualified Leads Delivered
                 </h3>
                 <p className="text-[13px] text-[#64748B] max-w-lg mt-1 leading-relaxed">
-                  The pipeline discovered {pipelineBreakdown?.rawDiscoveredCount || pipelineStats?.rawOsmCount || 0} candidate businesses, but none satisfied the required filter criteria. Complete rejection breakdown is detailed below.
+                  {statusReason || `The pipeline discovered ${pipelineBreakdown?.rawDiscoveredCount || pipelineStats?.rawOsmCount || 0} candidate businesses, but none satisfied the required filter criteria. Complete rejection breakdown is detailed below.`}
                 </p>
               </div>
             )}
@@ -1071,10 +1071,23 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                               DEMO
                             </span>
                           )}
+                          {lead.financialEligibility?.isQualified && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-violet-100 text-violet-800 border border-violet-300 shadow-2xs"
+                              title={lead.financialEligibility.qualificationExplanation}
+                            >
+                              {lead.financialEligibility.isNetWorth ? '₹70+ Cr Net Worth' : '₹70+ Cr Scale'}
+                            </span>
+                          )}
                         </div>
                         {lead.category && (
                           <span className="text-[11px] text-[#64748B] capitalize">
                             {lead.category}
+                          </span>
+                        )}
+                        {lead.financialEligibility?.evidence && (
+                          <span className="text-[10px] text-violet-700 font-medium truncate max-w-[240px] mt-0.5" title={lead.financialEligibility.qualificationExplanation}>
+                            {lead.financialEligibility.metricLabel} • {lead.financialEligibility.evidence.sourceName}
                           </span>
                         )}
                       </div>
