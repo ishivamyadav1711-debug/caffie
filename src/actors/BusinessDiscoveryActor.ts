@@ -35,6 +35,7 @@ export interface BusinessDiscoveryOutput {
   queryUsed?: string;
   endpointUsed?: string;
   providerStats: {
+    rapidapi?: ProviderStat;
     osm: ProviderStat;
     googlePlaces?: ProviderStat;
     web: ProviderStat;
@@ -43,6 +44,7 @@ export interface BusinessDiscoveryOutput {
     directory: ProviderStat;
   };
   totalDiscovered: number;
+  rapidapiLatencyMs?: number;
   googleLatencyMs?: number;
   osmLatencyMs?: number;
   cacheHit?: boolean;
@@ -50,7 +52,7 @@ export interface BusinessDiscoveryOutput {
 
 export class BusinessDiscoveryActor extends BaseActor<SearchDiscoveryParams, BusinessDiscoveryOutput> {
   readonly actorId = 'actor_business_discovery';
-  readonly name = 'Primary Google Places & OSM Discovery Actor';
+  readonly name = 'Primary RapidAPI & Fallback OSM Discovery Actor';
   readonly priority = 'HIGH' as const;
   readonly blocking = true;
   readonly timeoutMs = 15000;
@@ -64,9 +66,9 @@ export class BusinessDiscoveryActor extends BaseActor<SearchDiscoveryParams, Bus
   }> {
     const params = context.input;
     const loc = params.city ? `${params.city}, ${params.state}` : params.state;
-    context.onProgress?.(`Initiating business discovery (Google Places Primary + OSM Fallback) for ${params.industry} in ${loc}...`);
+    context.onProgress?.(`Initiating business discovery (RapidAPI Primary + OSM Fallback) for ${params.industry} in ${loc}...`);
 
-    const requestedLimit = Math.max(Number(params.limit) || 25, 5);
+    const requestedLimit = Math.max(Number(params.limit) || 10, 1);
 
     // 1. Caching & In-flight Request Deduplication via GoogleDiscoveryCache
     const searchKey = googleDiscoveryCache.generateSearchKey({
@@ -93,14 +95,17 @@ export class BusinessDiscoveryActor extends BaseActor<SearchDiscoveryParams, Bus
       };
     }
 
-    // 2. Delegate to ProviderManager for orchestrated primary Google Places + fallback OSM
+    // 2. Delegate to ProviderManager for orchestrated primary RapidAPI + fallback OSM
     const managerResult = await providerManager.executeDiscovery(params, context.onProgress);
 
     const activeSources: string[] = [];
+    if (managerResult.providers.rapidapi?.rawCount && managerResult.providers.rapidapi.rawCount > 0) activeSources.push('RapidAPI Maps Data');
     if (managerResult.providers.googlePlaces.rawCount > 0) activeSources.push('Google Places API');
     if (managerResult.providers.osm.rawCount > 0) activeSources.push('OpenStreetMap');
     if (activeSources.length === 0) {
-      activeSources.push(managerResult.primaryProvider === 'google_places' ? 'Google Places API' : 'OpenStreetMap');
+      if (managerResult.primaryProvider === 'rapidapi') activeSources.push('RapidAPI Maps Data');
+      else if (managerResult.primaryProvider === 'google_places') activeSources.push('Google Places API');
+      else activeSources.push('OpenStreetMap');
     }
 
     const dummyStat = (status: 'DISABLED' | 'NOT_NEEDED'): ProviderStat => ({
@@ -110,6 +115,15 @@ export class BusinessDiscoveryActor extends BaseActor<SearchDiscoveryParams, Bus
       durationMs: 0,
       errors: [],
     });
+
+    const rStat: ProviderStat = {
+      rawCount: managerResult.providers.rapidapi?.rawCount || 0,
+      discovered: managerResult.providers.rapidapi?.rawCount || 0,
+      status: (managerResult.providers.rapidapi?.status || 'NOT_NEEDED') as any,
+      durationMs: managerResult.latencies.rapidapiMs || 0,
+      reason: managerResult.providers.rapidapi?.reason,
+      errors: managerResult.providers.rapidapi?.errors,
+    };
 
     const gStat: ProviderStat = {
       rawCount: managerResult.providers.googlePlaces.rawCount,
@@ -150,34 +164,35 @@ export class BusinessDiscoveryActor extends BaseActor<SearchDiscoveryParams, Bus
 
     const output: BusinessDiscoveryOutput = {
       businesses: managerResult.businesses,
-      rawCount: managerResult.totalDiscovered,
+      rawCount: managerResult.businesses.length,
       sourceComplete: managerResult.sourceComplete,
-      sourceStatus: managerResult.overallStatus,
       statusReason: managerResult.statusReason,
-      queryUsed: params.industry,
-      googleLatencyMs: managerResult.latencies.googleMs,
-      osmLatencyMs: managerResult.latencies.osmMs,
+      sourceStatus: managerResult.overallStatus,
       providerStats: {
+        rapidapi: rStat,
         googlePlaces: gStat,
         osm: oStat,
-        businessProvider: gStat,
-        web: wStat,
+        web: dummyStat('NOT_NEEDED'),
         webSearch: wStat,
+        businessProvider: dummyStat('NOT_NEEDED'),
         directory: dStat,
       },
       totalDiscovered: managerResult.totalDiscovered,
+      rapidapiLatencyMs: managerResult.latencies.rapidapiMs || 0,
+      googleLatencyMs: managerResult.latencies.googleMs,
+      osmLatencyMs: managerResult.latencies.osmMs,
       cacheHit: false,
     };
 
-    // Store in query cache (24 hours TTL) if we found businesses
-    if (managerResult.totalDiscovered > 0) {
+    // Cache successful search results (TTL 24 hours)
+    if (output.rawCount > 0) {
       googleDiscoveryCache.setSearchQueryResults(searchKey, output);
     }
 
     return {
       data: output,
       sources: activeSources,
-      warnings: managerResult.providers.googlePlaces.errors,
+      warnings: managerResult.sourceComplete ? [] : [managerResult.statusReason],
     };
   }
 }

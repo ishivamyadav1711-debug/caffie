@@ -82,8 +82,8 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   const [contact, setContact] = useState<ContactFilter>(initialCriteria?.contact || 'All Contacts');
   const [website, setWebsite] = useState<WebsiteFilter>(initialCriteria?.website || 'All Websites');
 
-  // 6. RESULTS LIMIT: Dropdown
-  const [limit, setLimit] = useState<NumberOfLeads>(initialCriteria?.limit || 100);
+  // 6. RESULTS LIMIT: Dropdown (Default 10, Selectable: 5, 10, 15, 20)
+  const [limit, setLimit] = useState<NumberOfLeads>(initialCriteria?.limit || 10);
 
   // 7. REVIEW INTELLIGENCE FILTERS (Sections 9, 10, 11)
   const [showReviewFilters, setShowReviewFilters] = useState(false);
@@ -147,7 +147,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   const steps = [
     { 
       label: `Finding businesses in ${activeCity ? `${activeCity}, ` : ''}${selectedState}, ${selectedCountry}...`, 
-      desc: 'Querying Google Places API (Text Search New)' 
+      desc: 'Querying RapidAPI Maps Data & OpenStreetMap' 
     },
     { 
       label: 'Capturing ratings & review evidence...', 
@@ -204,7 +204,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
     { value: 'Unreachable', label: 'Unreachable' },
   ];
 
-  const limitOptions: NumberOfLeads[] = [25, 50, 100, 250, 500];
+  const limitOptions: NumberOfLeads[] = [5, 10, 15, 20];
 
   const isSearching = jobState === 'running' || isSearchingExternal;
 
@@ -264,13 +264,13 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
             </span>
           </h2>
           <p className="text-[12.5px] text-[#64748B] mt-0.5">
-            Discover real, verified businesses with live Google Places intelligence, real ratings, and review evidence.
+            Discover real, verified businesses with live RapidAPI Maps Data intelligence, OpenStreetMap fallback, and website audits.
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 self-start sm:self-auto text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-lg">
-          <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-          <span>Google Places Primary • Real Data Only</span>
+        <div className="flex items-center gap-1.5 self-start sm:self-auto text-[11px] font-medium text-teal-800 bg-teal-50 border border-teal-200/80 px-2.5 py-1 rounded-lg">
+          <ShieldCheck className="h-3.5 w-3.5 text-teal-600" />
+          <span>RapidAPI Primary • OpenStreetMap Fallback</span>
         </div>
       </div>
 
@@ -504,7 +504,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
             {isSearching ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin text-teal-400" />
-                <span>Searching Google Places...</span>
+                <span>Searching RapidAPI &amp; OSM...</span>
               </>
             ) : (
               <>

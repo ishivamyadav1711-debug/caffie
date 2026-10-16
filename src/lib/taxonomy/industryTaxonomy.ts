@@ -386,8 +386,8 @@ export const CANONICAL_INDUSTRIES: Record<CanonicalIndustryId, CanonicalIndustry
   clinic: {
     id: 'clinic',
     displayName: 'Clinics',
-    aliases: ['clinic', 'clinics', 'doctors', 'doctor', 'polyclinic', 'dentist'],
-    allowedGoogleTypes: ['clinic', 'medical_clinic', 'doctor', 'dentist', 'physiotherapist', 'hospital', 'health'],
+    aliases: ['clinic', 'clinics', 'doctors', 'doctor', 'polyclinic', 'dentist', 'dentists', 'dental'],
+    allowedGoogleTypes: ['clinic', 'medical_clinic', 'doctor', 'dentist', 'dentists', 'dental_clinic', 'physiotherapist', 'hospital', 'health'],
     forbiddenGoogleTypes: ['restaurant', 'cafe', 'real_estate_agency', 'hotel', 'car_repair', 'clothing_store'],
     osmTags: [
       { key: 'amenity', value: 'clinic' },
@@ -395,7 +395,7 @@ export const CANONICAL_INDUSTRIES: Record<CanonicalIndustryId, CanonicalIndustry
       { key: 'healthcare', value: 'clinic' },
       { key: 'healthcare', value: 'doctor' },
     ],
-    positiveNameKeywords: ['clinic', 'polyclinic', 'dental', 'dispensary', 'doctor', 'physician', 'homeopathy', 'ayurvedic clinic', 'orthopedic', 'eye clinic', 'skin clinic', 'care clinic'],
+    positiveNameKeywords: ['clinic', 'polyclinic', 'dental', 'dentist', 'dentists', 'dispensary', 'doctor', 'physician', 'homeopathy', 'ayurvedic clinic', 'orthopedic', 'eye clinic', 'skin clinic', 'care clinic'],
     negativeNameKeywords: ['restaurant', 'dhaba', 'hotel', 'real estate', 'properties'],
     discoveryQueryExpansions: ['Clinics in', 'Dental Clinics in', 'Doctors and Clinics in', 'Polyclinics in'],
     defaultCategoryLabel: 'Medical Clinic',

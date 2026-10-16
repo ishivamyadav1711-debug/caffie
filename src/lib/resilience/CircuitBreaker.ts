@@ -112,6 +112,12 @@ export class CircuitBreaker {
   }
 }
 
+export const rapidApiCircuitBreaker = new CircuitBreaker({
+  name: 'RapidApiMapsDataAPI',
+  failureThreshold: 3,
+  cooldownPeriodMs: 25000,
+});
+
 export const googlePlacesCircuitBreaker = new CircuitBreaker({
   name: 'GooglePlacesAPI',
   failureThreshold: 3,
@@ -123,3 +129,4 @@ export const osmCircuitBreaker = new CircuitBreaker({
   failureThreshold: 3,
   cooldownPeriodMs: 20000,
 });
+

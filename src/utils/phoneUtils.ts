@@ -23,6 +23,14 @@ export function normalizePhone(rawPhone?: string | null): string | undefined {
     return undefined;
   }
 
+  // 0. North American Numbering Plan (USA & Canada: +1 + 10 digits)
+  if (trimmed.startsWith('+1') || (digits.length === 11 && digits.startsWith('1') && !trimmed.startsWith('+91'))) {
+    const naDigits = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+    if (naDigits.length === 10) {
+      return `+1 ${naDigits.slice(0, 3)} ${naDigits.slice(3, 6)} ${naDigits.slice(6)}`;
+    }
+  }
+
   // 1. Mobile number with +91 or 91 country code (12 digits total)
   if (digits.length === 12 && digits.startsWith('91')) {
     const mobileDigits = digits.slice(2);

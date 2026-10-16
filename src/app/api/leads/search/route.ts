@@ -58,6 +58,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 1.1 Verify Country is in ALLOWED_DISCOVERY_COUNTRIES
+    const allowedCountriesList = (process.env.ALLOWED_DISCOVERY_COUNTRIES || 'IN,US,CA')
+      .split(',')
+      .map((c) => c.trim().toUpperCase());
+    if (!locValidation.countryCode || !allowedCountriesList.includes(locValidation.countryCode)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Country "${country}" is not supported. Supported discovery countries are: ${allowedCountriesList.join(', ')}.`,
+          code: 'UNSUPPORTED_COUNTRY',
+          leads: [],
+        },
+        { status: 400 }
+      );
+    }
+
     if (!industry || typeof industry !== 'string' || industry.trim().length === 0) {
       return NextResponse.json(
         {
@@ -70,7 +86,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const requestedLimit = Math.min(Math.max(Number(limit) || 25, 5), 250);
+    // Enforce server-side lead limit ceiling (default 20, selectable 5-20, safe default 10)
+    const maxLeadsConfig = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+    const requestedLimit = Math.min(Math.max(Number(limit) || 10, 1), maxLeadsConfig);
     const searchPayload: SearchRequestPayload = {
       country: locValidation.country,
       state: locValidation.matchedState,
@@ -79,6 +97,7 @@ export async function POST(req: NextRequest) {
       contactFilter,
       websiteFilter,
       limit: requestedLimit,
+
       minRating: typeof minRating === 'number' ? minRating : undefined,
       minReviews: typeof minReviews === 'number' ? minReviews : undefined,
       excludePerfectRating: Boolean(excludePerfectRating),

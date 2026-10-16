@@ -30,7 +30,7 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
   public isConfigured(): boolean {
     const rawKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
     const key = rawKey ? rawKey.trim().replace(/^["']|["']$/g, '').trim() : '';
-    return Boolean(key && key.length > 0 && process.env.GOOGLE_PLACES_ENABLED !== 'false');
+    return Boolean(key && key.length > 0 && process.env.GOOGLE_PLACES_ENABLED === 'true');
   }
 
   private static simulateTimeout: boolean = false;
@@ -214,7 +214,7 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
     // 1. Configuration check (DO NOT silently swallow missing API key!)
     const rawApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
     const apiKey = rawApiKey ? rawApiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
-    const isEnabled = process.env.GOOGLE_PLACES_ENABLED !== 'false';
+    const isEnabled = process.env.GOOGLE_PLACES_ENABLED === 'true';
 
     if (!isEnabled) {
       return {
@@ -225,7 +225,7 @@ export class GooglePlacesDiscoveryProvider implements BusinessDiscoveryProvider 
         businesses: [],
         sourceComplete: false,
         status: 'DISABLED',
-        statusReason: 'Google Places discovery is disabled via GOOGLE_PLACES_ENABLED=false.',
+        statusReason: 'Google Places discovery is disabled by default. Set GOOGLE_PLACES_ENABLED=true to activate.',
         pagesRequested: 0,
         errors: ['GOOGLE_PLACES_DISABLED'],
         durationMs: 0,

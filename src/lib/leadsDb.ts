@@ -72,6 +72,36 @@ class LeadsDatabase {
     const hasPhone = Boolean(lead.phone || (lead.contact?.phone && lead.contact.phone !== 'Not available'));
     const now = new Date();
 
+    // Mock records must never enter persistent database tables
+    if (lead.isMock) {
+      return {
+        id: lead.id,
+        source: lead.source || 'rapidapi (mock demo)',
+        sourceId: lead.id,
+        businessName: lead.businessName,
+        category: lead.category,
+        industry: lead.industry,
+        address: lead.address || lead.location?.address || '',
+        state: lead.state || lead.location?.state || '',
+        city: lead.city || lead.location?.city || '',
+        postcode: lead.postcode || lead.location?.postcode,
+        phone: lead.phone || lead.contact?.phone,
+        email: lead.email || lead.contact?.email,
+        website: lead.websiteUrl || lead.website?.url,
+        latitude: lead.latitude,
+        longitude: lead.longitude,
+        businessStatus: lead.businessStatus || 'OPERATIONAL',
+        websiteStatus: lead.websiteStatus || lead.website?.status || 'No Website',
+        websiteIssues: lead.websiteIssues || lead.website?.detectedIssues || [],
+        websitePagesAnalyzed: 0,
+        hasEmail,
+        hasPhone,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        rawLead: lead,
+      };
+    }
+
     try {
       const dbBusiness = await prisma.business.upsert({
         where: { id: lead.id },

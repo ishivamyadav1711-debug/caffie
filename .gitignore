@@ -32,4 +32,6 @@ yarn-error.log*
 .leadpilot/
 node_modules
 .env*
+!.env.example
+!.env.local.example
 scratch/

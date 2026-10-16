@@ -15,6 +15,9 @@ class LeadPilotDatabase {
 
   // --- Leads Operations ---
   public upsertLead(lead: LeadEntity): LeadEntity {
+    if (lead.isMock) {
+      return lead; // Do not store synthetic mock demo leads into persistent production tables
+    }
     lead.updatedAt = new Date().toISOString();
     this.leadsMap.set(lead.leadId, lead);
     return lead;
@@ -22,6 +25,7 @@ class LeadPilotDatabase {
 
   public upsertLeadsBatch(leads: LeadEntity[]): void {
     for (const lead of leads) {
+      if (lead.isMock) continue; // Do not store synthetic mock demo leads into persistent production tables
       lead.updatedAt = new Date().toISOString();
       this.leadsMap.set(lead.leadId, lead);
     }
@@ -32,7 +36,7 @@ class LeadPilotDatabase {
   }
 
   public getAllLeads(): LeadEntity[] {
-    return Array.from(this.leadsMap.values());
+    return Array.from(this.leadsMap.values()).filter((l) => !l.isMock);
   }
 
   /**
@@ -50,6 +54,7 @@ class LeadPilotDatabase {
     const targetInd = norm(params.industry);
 
     return Array.from(this.leadsMap.values()).filter((lead) => {
+      if (lead.isMock) return false; // Synthetic mock demo leads must never be served as real leads
       const lState = norm(lead.state);
       const lCity = norm(lead.city);
       const lInd = norm(lead.industry || lead.category);
