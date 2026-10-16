@@ -63,6 +63,7 @@ export class MultiSourceMergeActor extends BaseActor<RawDiscoveredBusiness[], Mu
   private normalizeSourceName(src: string): string {
     if (src === 'osm' || src === 'openstreetmap') return 'openstreetmap';
     if (src === 'google_places' || src === 'google') return 'google_places';
+    if (src === 'rapidapi' || src === 'rapidapi_maps' || src?.includes('rapidapi')) return 'rapidapi';
     return src;
   }
 
@@ -120,6 +121,7 @@ export class MultiSourceMergeActor extends BaseActor<RawDiscoveredBusiness[], Mu
       const itemDomain = item.website ? extractDomain(item.website) : undefined;
       const itemPhone = normalizePhone(item.phone);
       const itemLocality = this.extractLocalitySector(item.address, item.businessName || item.name);
+      const itemRapidId = item.source === 'rapidapi' ? item.sourceId : (item as any).rapidApiId || item.rawTags?.rapidApiId;
       const itemGoogleId = item.source === 'google_places' ? item.sourceId : item.rawTags?.googlePlaceId;
       const itemOsmId = item.source === 'openstreetmap' ? item.sourceId : item.rawTags?.osmId;
 
@@ -128,6 +130,7 @@ export class MultiSourceMergeActor extends BaseActor<RawDiscoveredBusiness[], Mu
 
       for (let i = 0; i < mergedList.length; i++) {
         const existing = mergedList[i];
+        const existRapidId = existing.source === 'rapidapi' ? existing.sourceId : (existing as any).rapidApiId || existing.rawTags?.rapidApiId;
         const existGoogleId = existing.source === 'google_places' ? existing.sourceId : existing.rawTags?.googlePlaceId;
         const existOsmId = existing.source === 'openstreetmap' ? existing.sourceId : existing.rawTags?.osmId;
         const existingNormName = this.normalizeName(existing.businessName || existing.name);
@@ -157,14 +160,15 @@ export class MultiSourceMergeActor extends BaseActor<RawDiscoveredBusiness[], Mu
 
         // ==================================================
         // DEDUPLICATION PRIORITY (Requirement 6)
-        // 1. Google Place ID / provider source ID
+        // 1. RapidAPI / Google Place ID / provider source ID
         // 2. Normalized website domain
         // 3. Normalized phone
         // 4. Normalized name + geographic proximity
         // ==================================================
 
-        // Priority 1: Google Place ID or Provider Source ID match
+        // Priority 1: RapidAPI ID, Google Place ID or Provider Source ID match
         if (
+          (itemRapidId && existRapidId && itemRapidId === existRapidId) ||
           (itemGoogleId && existGoogleId && itemGoogleId === existGoogleId) ||
           (itemOsmId && existOsmId && String(itemOsmId) === String(existOsmId)) ||
           (item.source === existing.source && item.sourceId === existing.sourceId)
@@ -232,9 +236,23 @@ export class MultiSourceMergeActor extends BaseActor<RawDiscoveredBusiness[], Mu
         deduplicatedCount++;
         const target = mergedList[matchedIndex];
 
-        // Preference: If incoming item is from Google Places and target is OSM,
-        // upgrade target's core identity fields to Google Places (Primary discovery source)
-        if (item.source === 'google_places' && target.source !== 'google_places') {
+        // Preference: If incoming item is from RapidAPI (Primary discovery source) and target is not RapidAPI,
+        // upgrade target's core identity fields to RapidAPI
+        if (item.source === 'rapidapi' && target.source !== 'rapidapi') {
+          target.name = item.name;
+          target.businessName = item.businessName;
+          target.address = item.address;
+          if (item.latitude && item.longitude) {
+            target.latitude = item.latitude;
+            target.longitude = item.longitude;
+          }
+          if (item.category) target.category = item.category;
+          if (item.types && item.types.length > 0) target.types = item.types;
+          target.source = 'rapidapi';
+          target.sourceId = item.sourceId;
+          target.sourceUrl = item.sourceUrl;
+          (target as any).rapidApiId = (item as any).rapidApiId || item.sourceId;
+        } else if (item.source === 'google_places' && target.source !== 'google_places' && target.source !== 'rapidapi') {
           target.name = item.name;
           target.businessName = item.businessName;
           target.address = item.address;
@@ -247,6 +265,11 @@ export class MultiSourceMergeActor extends BaseActor<RawDiscoveredBusiness[], Mu
           target.source = 'google_places';
           target.sourceId = item.sourceId;
           target.sourceUrl = item.sourceUrl;
+        }
+
+        // Preserve mock flag across merged candidates
+        if (item.isMock || target.isMock) {
+          target.isMock = true;
         }
 
         // Enrich missing fields from candidate
@@ -270,11 +293,19 @@ export class MultiSourceMergeActor extends BaseActor<RawDiscoveredBusiness[], Mu
         }
         target.sources = existingSources;
 
-        // Maintain merged rawTags (combine googlePlaceId, osmId, etc.)
+        // Maintain merged rawTags (combine rapidApiId, googlePlaceId, osmId, etc.)
         target.rawTags = {
           ...(target.rawTags || {}),
           ...(item.rawTags || {}),
         };
+
+        const targetRapidId = target.source === 'rapidapi' ? target.sourceId : target.rawTags?.rapidApiId || (target as any).rapidApiId;
+        const candidateRapidId = item.source === 'rapidapi' ? item.sourceId : item.rawTags?.rapidApiId || (item as any).rapidApiId;
+        if (targetRapidId || candidateRapidId) {
+          target.rawTags.rapidApiId = targetRapidId || candidateRapidId;
+          (target as any).rapidApiId = targetRapidId || candidateRapidId;
+        }
+
         const targetGoogleId = target.source === 'google_places' ? target.sourceId : target.rawTags?.googlePlaceId || (target as any).googlePlaceId;
         const candidateGoogleId = item.source === 'google_places' ? item.sourceId : item.rawTags?.googlePlaceId || (item as any).googlePlaceId;
         if (targetGoogleId || candidateGoogleId) {

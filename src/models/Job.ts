@@ -113,7 +113,10 @@ export interface Job {
   sourceComplete: boolean;
   statusReason?: string;
 
+  primaryProvider?: string;
   providerStats?: {
+    primaryProvider?: string;
+    rapidapi?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
     googlePlaces?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
     osm: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
     web?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
@@ -123,6 +126,7 @@ export interface Job {
   };
 
   providersReport?: {
+    rapidapi?: { status: string; discovered: number; errors?: string[] };
     googlePlaces?: { status: string; discovered: number; errors?: string[] };
     osm: { status: string; discovered: number; errors?: string[] };
     webSearch: { status: string; discovered: number; errors?: string[] };

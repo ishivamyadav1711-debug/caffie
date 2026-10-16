@@ -29,6 +29,19 @@ export class OutreachEligibilityService {
    * Enforces verification status, suppression, duplicate cooldown, and provider readiness.
    */
   static async checkEligibility(leadId: string): Promise<OutreachEligibilityResult> {
+    if (leadId.startsWith('mock_') || leadId.toLowerCase().includes('demo')) {
+      return {
+        leadId,
+        businessName: 'Mock Demo Business',
+        canSendAny: false,
+        email: { eligible: false, providerConfigured: false, providerName: 'none', reason: 'Outreach is strictly disabled for synthetic demo/mock records.' },
+        sms: { eligible: false, providerConfigured: false, providerName: 'none', reason: 'Outreach is strictly disabled for synthetic demo/mock records.' },
+        whatsapp: { eligible: false, providerConfigured: false, providerName: 'none', reason: 'Outreach is strictly disabled for synthetic demo/mock records.' },
+        reasons: ['Outreach is strictly disabled for synthetic demo/mock records.'],
+        recommendedChannel: 'NONE',
+      };
+    }
+
     const business = await prisma.business.findUnique({
       where: { id: leadId },
       include: {
@@ -50,6 +63,19 @@ export class OutreachEligibilityService {
       };
     }
 
+    if ((business as any).isMock) {
+      return {
+        leadId,
+        businessName: business.name,
+        canSendAny: false,
+        email: { eligible: false, providerConfigured: false, providerName: 'none', reason: 'Outreach is strictly disabled for synthetic demo/mock records.' },
+        sms: { eligible: false, providerConfigured: false, providerName: 'none', reason: 'Outreach is strictly disabled for synthetic demo/mock records.' },
+        whatsapp: { eligible: false, providerConfigured: false, providerName: 'none', reason: 'Outreach is strictly disabled for synthetic demo/mock records.' },
+        reasons: ['Outreach is strictly disabled for synthetic demo/mock records.'],
+        recommendedChannel: 'NONE',
+      };
+    }
+
     const emailProvider = OutreachProviderFactory.getEmailProvider();
     const smsProvider = OutreachProviderFactory.getSmsProvider();
     const whatsAppProvider = OutreachProviderFactory.getWhatsAppProvider();
@@ -63,6 +89,8 @@ export class OutreachEligibilityService {
 
     if (!rawEmail) {
       emailReason = 'No email address registered for this business.';
+    } else if (rawEmail.endsWith('.invalid') || rawEmail.endsWith('.example') || rawEmail.includes('@example.')) {
+      emailReason = 'Outreach is disabled for mock/demo email addresses.';
     } else {
       const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
       if (!emailRegex.test(rawEmail)) {
@@ -93,6 +121,8 @@ export class OutreachEligibilityService {
 
     if (!rawPhone) {
       smsReason = 'No telephone number registered for this business.';
+    } else if (rawPhone.includes('555-01') || rawPhone.includes('55501') || rawPhone.startsWith('+1555')) {
+      smsReason = 'Outreach is disabled for fictional demo phone numbers.';
     } else {
       try {
         if (isValidPhoneNumber(rawPhone, 'IN')) {

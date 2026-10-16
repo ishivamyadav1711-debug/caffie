@@ -143,6 +143,8 @@ export interface LeadEntity {
   commercialMilestones?: any[];
   firstKnownGmvDate?: string | null;
   osmId?: string;
+  rapidApiId?: string;
+  isMock?: boolean;
   provenance?: Record<string, { value: any; source: string; verified: boolean }>;
 
   createdAt: string;
@@ -163,6 +165,13 @@ export function leadEntityToFrontend(lead: LeadEntity): FrontendLead {
       ? 'No Website'
       : 'Needs Improvement';
 
+  const isMockRecord = Boolean(
+    lead.isMock ||
+    (lead as any).rawTags?.isMock ||
+    (lead as any).rawTags?.isMockDemo ||
+    lead.sources?.some(s => s.includes('mock'))
+  );
+
   return {
     id: lead.leadId,
     businessName: lead.businessName,
@@ -172,30 +181,32 @@ export function leadEntityToFrontend(lead: LeadEntity): FrontendLead {
     state: lead.state,
     city: lead.city,
     country: lead.country,
+    isMock: isMockRecord,
+    rapidApiId: lead.rapidApiId,
     googlePlaceId: lead.googlePlaceId,
-    rating: lead.rating,
-    reviewCount: lead.reviewCount ?? lead.userRatingCount,
-    userRatingCount: lead.userRatingCount ?? lead.reviewCount,
-    positiveReviewDataAvailable: lead.positiveReviewDataAvailable,
-    positiveReviewCount: lead.positiveReviewCount,
-    negativeReviewCount: lead.negativeReviewCount,
-    neutralReviewCount: lead.neutralReviewCount,
-    positiveReviewRatio: lead.positiveReviewRatio,
-    reviews: lead.reviews,
+    rating: isMockRecord ? null : lead.rating,
+    reviewCount: isMockRecord ? null : (lead.reviewCount ?? lead.userRatingCount),
+    userRatingCount: isMockRecord ? null : (lead.userRatingCount ?? lead.reviewCount),
+    positiveReviewDataAvailable: isMockRecord ? false : lead.positiveReviewDataAvailable,
+    positiveReviewCount: isMockRecord ? null : lead.positiveReviewCount,
+    negativeReviewCount: isMockRecord ? null : lead.negativeReviewCount,
+    neutralReviewCount: isMockRecord ? null : lead.neutralReviewCount,
+    positiveReviewRatio: isMockRecord ? null : lead.positiveReviewRatio,
+    reviews: isMockRecord ? [] : lead.reviews,
     commercialMilestones: lead.commercialMilestones,
     firstKnownGmvDate: lead.firstKnownGmvDate,
     phone: lead.phone,
     email: lead.email,
     emailSource: lead.contacts?.find((c) => c.type === 'email')?.source || (lead.email ? 'official_website' : undefined),
     websiteUrl: lead.website,
-    websiteStatus: statusStr as any,
+    websiteStatus: isMockRecord ? ('No Website' as any) : (statusStr as any),
     leadScore: lead.leadScore,
     scoreBreakdown: lead.scoreBreakdown || [],
-    auditIssues: issues.map((i) => i.issue),
-    websiteIssues: issues.map((i) => i.issue),
+    auditIssues: isMockRecord ? [] : issues.map((i) => i.issue),
+    websiteIssues: isMockRecord ? [] : issues.map((i) => i.issue),
     osmId: lead.sourceEvidence?.[0]?.sourceId ? String(lead.sourceEvidence[0].sourceId) : undefined,
     osmType: (lead.sourceEvidence?.[0]?.rawTags?.osmType as any) || 'node',
-    source: lead.sources?.[0] || 'google_places',
+    source: lead.sources?.[0] || 'rapidapi',
     sources: lead.sources,
     sourceEvidence: lead.sourceEvidence,
     latitude: lead.latitude,

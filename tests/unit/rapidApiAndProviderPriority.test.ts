@@ -10,6 +10,11 @@ import { leadPilotDb } from '@/db';
 import { smartRotationService } from '@/services/SmartRotationService';
 import { LeadEntity } from '@/models/Lead';
 import { rapidApiCircuitBreaker, googlePlacesCircuitBreaker, osmCircuitBreaker } from '@/lib/resilience/CircuitBreaker';
+import { multiSourceMergeActor } from '@/actors/MultiSourceMergeActor';
+import { deduplicationActor } from '@/actors/DeduplicationActor';
+import { OutreachEligibilityService } from '@/lib/outreach/outreachEligibility';
+import { leadsDb } from '@/lib/leadsDb';
+import { VerifiedBusiness } from '@/actors/BusinessVerificationActor';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -425,6 +430,214 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
     expect(mockRes.businesses[0].confidence).toBe('DEMO_MOCK');
     expect(mockRes.businesses[0].sources).toContain('rapidapi (mock demo)');
     expect(mockRes.businesses[0].rawTags.isMockDemo).toBe(true);
+  });
+
+  // 16. Mock mode produces honest demo records with null ratings, fictional RFC 2606 domains, and 555-01xx phones
+  it('16. Mock mode delivers requested lead count without 5-cap and avoids fabricating real ratings or real contacts', async () => {
+    process.env.RAPIDAPI_KEY = '';
+    process.env.RAPIDAPI_MOCK_MODE = 'true';
+    RapidApiDiscoveryProvider.setSimulateResults(null);
+
+    const requestedLimit = 10;
+    const mockRes = await rapidApiDiscoveryProvider.discoverBusinesses({
+      industry: 'Dentists',
+      state: 'Texas',
+      city: 'Austin',
+      country: 'USA',
+      limit: requestedLimit,
+    });
+
+    expect(mockRes.status).toBe('SUCCESS');
+    // Verifies the 50-to-6 / 5-cap bug is resolved: requested 10 yields 10 mock candidates
+    expect(mockRes.rawCount).toBe(10);
+    expect(mockRes.businesses.length).toBe(10);
+
+    for (const b of mockRes.businesses) {
+      // Prompt 2: Never give mock records fabricated real-looking ratings, review counts, phone numbers, verified contacts or working website claims
+      expect(b.isMock).toBe(true);
+      expect(b.rating).toBeNull();
+      expect(b.userRatingCount).toBeNull();
+      expect(b.confidence).toBe('DEMO_MOCK');
+      // Fictional phone using standard 555-01xx
+      expect(b.phone).toMatch(/\(555\)\s*01\d{2}/);
+      // Fictional domain using RFC 2606 .invalid
+      expect(b.website).toMatch(/\.invalid/);
+    }
+  });
+
+  // 17. MultiSourceMergeActor prioritizes RapidAPI as primary and preserves isMock flag
+  it('17. MultiSourceMergeActor prioritizes RapidAPI primary source and preserves isMock and rapidApiId', async () => {
+    const rapidMock: RawDiscoveredBusiness = {
+      source: 'rapidapi',
+      sources: ['rapidapi'],
+      sourceId: 'rapid_mock_001',
+      name: 'Austin Dental Center',
+      businessName: 'Austin Dental Center',
+      category: 'Dentist',
+      address: '100 Main St, Austin, TX',
+      city: 'Austin',
+      state: 'Texas',
+      phone: '+1 555-0144',
+      website: 'https://austindental.invalid',
+      rating: null,
+      userRatingCount: null,
+      isMock: true,
+      rawTags: { rapidApiId: 'rapid_mock_001' },
+    };
+
+    const osmItem: RawDiscoveredBusiness = {
+      source: 'openstreetmap',
+      sources: ['openstreetmap'],
+      sourceId: 'node/998877',
+      name: 'Austin Dental Center',
+      businessName: 'Austin Dental Center',
+      category: 'Dentist',
+      address: '100 Main St, Austin, TX',
+      city: 'Austin',
+      state: 'Texas',
+      phone: '+1 555-0144',
+      website: 'https://austindental.invalid',
+      rating: null,
+      userRatingCount: null,
+      rawTags: { osmId: '998877' },
+    };
+
+    const context: any = { input: [osmItem, rapidMock] };
+    const mergeOutput = await (multiSourceMergeActor as any).run(context);
+
+    expect(mergeOutput.data.deduplicatedCount).toBe(1);
+    expect(mergeOutput.data.merged.length).toBe(1);
+    const merged = mergeOutput.data.merged[0];
+    // RapidAPI is primary, so source upgraded to rapidapi
+    expect(merged.source).toBe('rapidapi');
+    expect(merged.sources).toContain('rapidapi');
+    expect(merged.sources).toContain('openstreetmap');
+    expect(merged.isMock).toBe(true);
+    expect(merged.rawTags?.rapidApiId).toBe('rapid_mock_001');
+  });
+
+  // 18. DeduplicationActor deduplicates by phone and domain while strictly preserving distinct branches
+  it('18. DeduplicationActor deduplicates by stable provider ID, phone, and domain while preserving separate branches', async () => {
+    const branch1: VerifiedBusiness = {
+      source: 'rapidapi',
+      sources: ['rapidapi'],
+      sourceId: 'branch_1',
+      name: 'Downtown Dental',
+      businessName: 'Downtown Dental',
+      address: '101 Congress Ave, Austin, TX',
+      city: 'Austin',
+      state: 'Texas',
+      phone: '+1 512 555 0101',
+      website: 'https://downtowndental.com',
+      latitude: 30.2672,
+      longitude: -97.7431,
+      businessVerificationStatus: 'VERIFIED',
+      rawTags: {},
+    };
+
+    // Duplicate candidate: same phone and domain, same city
+    const branch1Duplicate: VerifiedBusiness = {
+      source: 'openstreetmap',
+      sources: ['openstreetmap'],
+      sourceId: 'osm_node_101',
+      name: 'Downtown Dental',
+      businessName: 'Downtown Dental',
+      address: '101 Congress Ave, Austin, TX',
+      city: 'Austin',
+      state: 'Texas',
+      phone: '+1 512 555 0101',
+      website: 'https://downtowndental.com',
+      latitude: 30.2673,
+      longitude: -97.7432,
+      businessVerificationStatus: 'VERIFIED',
+      rawTags: {},
+    };
+
+    // Distinct branch: different location (> 500m away), distinct phone
+    const branch2: VerifiedBusiness = {
+      source: 'rapidapi',
+      sources: ['rapidapi'],
+      sourceId: 'branch_2',
+      name: 'Downtown Dental',
+      businessName: 'Downtown Dental',
+      address: '9000 Research Blvd, Austin, TX',
+      city: 'Austin',
+      state: 'Texas',
+      phone: '+1 512 555 0202',
+      website: 'https://downtowndental.com',
+      latitude: 30.3700,
+      longitude: -97.7200,
+      businessVerificationStatus: 'VERIFIED',
+      rawTags: {},
+    };
+
+    const context: any = { input: [branch1, branch1Duplicate, branch2] };
+    const result = await (deduplicationActor as any).run(context);
+
+    expect(result.data.duplicatesCount).toBe(1);
+    expect(result.data.unique.length).toBe(2);
+    // Distinct branch is preserved, not falsely collapsed
+    expect(result.data.unique.some(b => b.sourceId === 'branch_1')).toBe(true);
+    expect(result.data.unique.some(b => b.sourceId === 'branch_2')).toBe(true);
+  });
+
+  // 19. Outreach is strictly disabled for mock records and fictional contacts
+  it('19. OutreachEligibilityService strictly rejects synthetic mock records and fictional contacts', async () => {
+    // 1. Mock lead ID check
+    const mockEligibility = await OutreachEligibilityService.checkEligibility('mock_rapidapi_dental_1');
+    expect(mockEligibility.canSendAny).toBe(false);
+    expect(mockEligibility.email.eligible).toBe(false);
+    expect(mockEligibility.sms.eligible).toBe(false);
+    expect(mockEligibility.whatsapp.eligible).toBe(false);
+    expect(mockEligibility.reasons.some(r => r.includes('disabled for synthetic demo/mock'))).toBe(true);
+
+    // 2. Demo lead ID check
+    const demoEligibility = await OutreachEligibilityService.checkEligibility('demo_lead_123');
+    expect(demoEligibility.canSendAny).toBe(false);
+  });
+
+  // 20. Database persistence strictly excludes mock records from persistent storage
+  it('20. Persistent databases strictly exclude mock/demo records from persistent storage', async () => {
+    const mockLead: any = {
+      id: 'mock_demo_test_entity_1',
+      businessName: 'Demo Plumbing Service',
+      category: 'Plumber',
+      industry: 'Plumbing',
+      address: '123 Fake St',
+      city: 'Austin',
+      state: 'Texas',
+      isMock: true,
+      website: { url: 'https://plumber.invalid', status: 'Demo Domain', hasWebsite: true },
+      contact: { phone: '(555) 0123', email: 'demo@plumber.invalid' },
+    };
+
+    // leadPilotDb memory/cache
+    const saved = leadPilotDb.upsertLead(mockLead);
+    expect(saved.isMock).toBe(true);
+    // Mock lead must NOT appear in getAllLeads
+    const allLeads = leadPilotDb.getAllLeads();
+    expect(allLeads.some(l => l.id === 'mock_demo_test_entity_1')).toBe(false);
+
+    // leadsDb Prisma wrapper
+    const stored = await leadsDb.upsertLeadAsync(mockLead);
+    expect(stored.id).toBe('mock_demo_test_entity_1');
+    // Prisma query is bypassed; memory cache does not pollute persistent queries
+  });
+
+  // 21. Pipeline health and transparency correctly reports RapidAPI primary
+  it('21. Provider health service and status report consistently identifies RapidAPI as primary', async () => {
+    process.env.PRIMARY_DISCOVERY_PROVIDER = 'rapidapi';
+    process.env.RAPIDAPI_MOCK_MODE = 'true';
+    process.env.RAPIDAPI_KEY = '';
+    process.env.GOOGLE_PLACES_ENABLED = 'false';
+
+    const health = await providerHealthService.checkHealth();
+    expect(health.primaryProvider).toBe('rapidapi');
+    expect(health.googlePlaces.enabled).toBe(false);
+    expect(health.googlePlaces.healthy).toBe(false);
+    expect(health.rapidapi.enabled).toBe(true);
+    expect(health.rapidapi.healthy).toBe(true);
+    expect(health.rapidapi.message).toContain('MOCK/DEMO mode');
   });
 });
 

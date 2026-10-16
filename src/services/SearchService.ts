@@ -83,19 +83,27 @@ export class SearchService {
       leads: frontendLeads,
       results: frontendLeads,
       summary,
-      providerStats: job.providerStats || {
-        googlePlaces: {
-          rawCount: job.providersReport?.googlePlaces?.discovered ?? job.discovered ?? 0,
-          status: job.providersReport?.googlePlaces?.status || (!process.env.GOOGLE_PLACES_API_KEY ? 'NOT_CONFIGURED' : (job.discovered > 0 ? 'SUCCESS' : 'NO_RESULTS')),
+      primaryProvider: (job.primaryProvider || process.env.PRIMARY_DISCOVERY_PROVIDER || 'rapidapi').toLowerCase(),
+      providerStats: {
+        primaryProvider: (job.primaryProvider || process.env.PRIMARY_DISCOVERY_PROVIDER || 'rapidapi').toLowerCase(),
+        rapidapi: job.providerStats?.rapidapi || {
+          rawCount: job.providersReport?.rapidapi?.discovered ?? 0,
+          status: job.providersReport?.rapidapi?.status || (process.env.RAPIDAPI_MOCK_MODE === 'true' ? 'SUCCESS' : (process.env.RAPIDAPI_KEY ? 'SUCCESS' : 'NOT_CONFIGURED')),
           durationMs: 0,
         },
-        osm: {
+        googlePlaces: job.providerStats?.googlePlaces || {
+          rawCount: job.providersReport?.googlePlaces?.discovered ?? 0,
+          status: job.providersReport?.googlePlaces?.status || (process.env.GOOGLE_PLACES_ENABLED === 'true' ? (process.env.GOOGLE_PLACES_API_KEY ? 'SUCCESS' : 'NOT_CONFIGURED') : 'DISABLED'),
+          durationMs: 0,
+        },
+        osm: job.providerStats?.osm || {
           rawCount: job.providersReport?.osm?.discovered ?? 0,
           status: job.providersReport?.osm?.status || (process.env.OSM_ENABLED === 'false' ? 'DISABLED' : ((job.providersReport?.osm?.discovered ?? 0) > 0 ? 'SUCCESS' : 'NOT_NEEDED')),
           durationMs: 0,
         },
         web: { rawCount: 0, status: 'NOT_NEEDED', durationMs: 0 },
-        directory: { rawCount: 0, status: 'NOT_NEEDED', durationMs: 0 },
+        webSearch: job.providerStats?.webSearch || { rawCount: 0, status: 'NOT_NEEDED', durationMs: 0 },
+        directory: job.providerStats?.directory || { rawCount: 0, status: 'NOT_NEEDED', durationMs: 0 },
       },
       pipelineStats: {
         rawOsmCount: job.providerStats?.osm?.rawCount ?? 0,
@@ -123,9 +131,14 @@ export class SearchService {
       },
       rejectionReasons: job.rejectionReasons,
       providers: {
+        rapidapi: {
+          status: job.providersReport?.rapidapi?.status || job.providerStats?.rapidapi?.status || (process.env.RAPIDAPI_MOCK_MODE === 'true' ? 'SUCCESS' : (process.env.RAPIDAPI_KEY ? 'SUCCESS' : 'NOT_CONFIGURED')),
+          discovered: job.providersReport?.rapidapi?.discovered ?? job.providerStats?.rapidapi?.rawCount ?? 0,
+          errors: job.providersReport?.rapidapi?.errors || job.providerStats?.rapidapi?.errors || [],
+        },
         googlePlaces: {
-          status: job.providersReport?.googlePlaces?.status || job.providerStats?.googlePlaces?.status || (!process.env.GOOGLE_PLACES_API_KEY ? 'NOT_CONFIGURED' : (job.discovered > 0 ? 'SUCCESS' : 'NO_RESULTS')),
-          discovered: job.providersReport?.googlePlaces?.discovered ?? job.providerStats?.googlePlaces?.rawCount ?? job.discovered ?? 0,
+          status: job.providersReport?.googlePlaces?.status || job.providerStats?.googlePlaces?.status || (process.env.GOOGLE_PLACES_ENABLED === 'true' ? (process.env.GOOGLE_PLACES_API_KEY ? 'SUCCESS' : 'NOT_CONFIGURED') : 'DISABLED'),
+          discovered: job.providersReport?.googlePlaces?.discovered ?? job.providerStats?.googlePlaces?.rawCount ?? 0,
           pagesRequested: (job.providersReport?.googlePlaces as any)?.pagesRequested || (job.providerStats?.googlePlaces as any)?.pagesRequested || 0,
           errors: job.providersReport?.googlePlaces?.errors || job.providerStats?.googlePlaces?.errors || [],
         },

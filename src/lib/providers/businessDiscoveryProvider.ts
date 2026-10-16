@@ -14,6 +14,7 @@ export interface ProviderReportItem {
 }
 
 export interface ProvidersStatusReport {
+  rapidapi?: ProviderReportItem;
   osm: ProviderReportItem;
   googlePlaces: ProviderReportItem;
 }
@@ -110,9 +111,9 @@ export class OpenStreetMapDiscoveryProvider implements BusinessDiscoveryProvider
 
 /**
  * Production Composite Discovery Provider
- * Google Places is PRIMARY.
- * OpenStreetMap is SECONDARY / FALLBACK when Google is unavailable, times out,
- * hits budget limit, or yields insufficient coverage.
+ * RapidAPI Maps Data is PRIMARY.
+ * OpenStreetMap is SECONDARY / FALLBACK.
+ * Google Places API (New) is MODULAR & DISABLED by default.
  */
 export class CompositeBusinessDiscoveryProvider implements BusinessDiscoveryProvider {
   readonly name = 'composite_discovery';
@@ -120,6 +121,7 @@ export class CompositeBusinessDiscoveryProvider implements BusinessDiscoveryProv
   public osm = new OpenStreetMapDiscoveryProvider();
 
   private lastProvidersReport: ProvidersStatusReport = {
+    rapidapi: { status: 'SUCCESS', discovered: 0 },
     osm: { status: 'SUCCESS', discovered: 0 },
     googlePlaces: { status: 'DISABLED', discovered: 0 },
   };
@@ -139,89 +141,67 @@ export class CompositeBusinessDiscoveryProvider implements BusinessDiscoveryProv
   }
 
   async searchBusinesses(criteria: DiscoveryCriteria): Promise<DiscoveredBusiness[]> {
-    const results: DiscoveredBusiness[] = [];
+    const { providerManager } = await import('./ProviderManager');
     const requestedLimit = criteria.limit || 20;
 
-    let googleSuccess = false;
-    let osmSuccess = false;
+    const managerResult = await providerManager.executeDiscovery({
+      industry: criteria.industry,
+      state: criteria.state,
+      city: criteria.city,
+      country: criteria.country || 'India',
+      limit: requestedLimit,
+    });
 
-    // 1. Google Places Primary
-    const isGoogleConfigured = this.googlePlaces.isConfigured();
-    const budgetCheck = googleUsageTracker.canExecuteGoogleRequest();
+    const rStats = managerResult.providers.rapidapi;
+    const gStats = managerResult.providers.googlePlaces;
+    const oStats = managerResult.providers.osm;
 
-    if (isGoogleConfigured && budgetCheck.allowed && googlePlacesCircuitBreaker.getState() !== 'OPEN') {
-      const gStart = Date.now();
-      try {
-        const googleResults = await this.googlePlaces.searchBusinesses(criteria);
-        const gDur = Date.now() - gStart;
-        this.lastProvidersReport.googlePlaces = {
-          status: 'SUCCESS',
-          discovered: googleResults.length,
-          durationMs: gDur,
-        };
-        results.push(...googleResults);
-        googleSuccess = true;
-      } catch (err: any) {
-        console.warn('[DiscoveryProvider] Google Places failed, falling back to OSM:', err.message);
-        this.lastProvidersReport.googlePlaces = {
-          status: 'FAILED',
-          discovered: 0,
-          error: err.message,
-        };
-      }
-    } else {
-      this.lastProvidersReport.googlePlaces = {
-        status: !isGoogleConfigured ? 'DISABLED' : 'NOT_NEEDED',
-        discovered: 0,
-        error: budgetCheck.reason,
-      };
-    }
+    this.lastProvidersReport = {
+      rapidapi: {
+        status: (rStats?.status === 'SUCCESS' || rStats?.status === 'COMPLETE') ? 'SUCCESS' : (rStats?.status === 'DISABLED' ? 'DISABLED' : (rStats?.status === 'NOT_CONFIGURED' ? 'FAILED' : 'FAILED')),
+        discovered: rStats?.rawCount || 0,
+        durationMs: managerResult.latencies.rapidapiMs,
+        error: rStats?.reason,
+      },
+      googlePlaces: {
+        status: gStats?.status === 'DISABLED' ? 'DISABLED' : (gStats?.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED'),
+        discovered: gStats?.rawCount || 0,
+        durationMs: managerResult.latencies.googleMs,
+        error: gStats?.reason,
+      },
+      osm: {
+        status: oStats?.status === 'SUCCESS' ? 'SUCCESS' : (oStats?.status === 'DISABLED' ? 'DISABLED' : 'FAILED'),
+        discovered: oStats?.rawCount || 0,
+        durationMs: managerResult.latencies.osmMs,
+        error: oStats?.reason,
+      },
+    };
 
-    // 2. OpenStreetMap (OSM) Fallback or Supplemental
-    // If Google already returned sufficient candidates (>= requestedLimit), DO NOT block on OSM!
-    const needOsm = results.length < requestedLimit;
+    this.lastSourceStatus = managerResult.overallStatus === 'COMPLETE' ? 'COMPLETE' : managerResult.overallStatus === 'PARTIAL' ? 'PARTIAL' : 'FAILED';
 
-    if (needOsm) {
-      const oStart = Date.now();
-      try {
-        const osmResults = await this.osm.searchBusinesses(criteria);
-        const oDur = Date.now() - oStart;
-        this.lastProvidersReport.osm = {
-          status: 'SUCCESS',
-          discovered: osmResults.length,
-          durationMs: oDur,
-        };
-        osmSuccess = true;
-
-        // Deduplicate against Google Places by normalized name
-        const existingNames = new Set(results.map((r) => r.name.toLowerCase().trim()));
-        for (const osmBiz of osmResults) {
-          if (!existingNames.has(osmBiz.name.toLowerCase().trim())) {
-            results.push(osmBiz);
-          }
-        }
-      } catch (err: any) {
-        console.warn('[DiscoveryProvider] OpenStreetMap fallback failed:', err.message);
-        this.lastProvidersReport.osm = {
-          status: 'FAILED',
-          discovered: 0,
-          error: err.message,
-        };
-      }
-    } else {
-      this.lastProvidersReport.osm = {
-        status: 'NOT_NEEDED',
-        discovered: 0,
-      };
-    }
-
-    if (results.length > 0) {
-      this.lastSourceStatus = results.length >= requestedLimit ? 'COMPLETE' : 'PARTIAL';
-    } else {
-      this.lastSourceStatus = 'FAILED';
-    }
-
-    return results;
+    const now = new Date().toISOString();
+    return managerResult.businesses.map((b) => ({
+      provider: b.source,
+      sourceId: b.sourceId,
+      name: b.name || b.businessName,
+      category: b.category,
+      industry: criteria.industry,
+      address: b.address,
+      city: criteria.city || criteria.state,
+      state: criteria.state,
+      country: criteria.country || 'India',
+      latitude: b.latitude,
+      longitude: b.longitude,
+      phone: b.phone,
+      websiteUrl: b.website,
+      rating: typeof b.rating === 'number' ? b.rating : undefined,
+      reviewCount: typeof b.userRatingCount === 'number' ? b.userRatingCount : undefined,
+      businessStatus: b.businessStatus || 'OPERATIONAL',
+      rawPayload: b.rawTags,
+      sourceUrl: b.sourceUrl,
+      collectedAt: now,
+      isMock: b.isMock,
+    } as DiscoveredBusiness));
   }
 }
 

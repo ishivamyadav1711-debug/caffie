@@ -14,6 +14,8 @@ export interface RawDiscoveredBusiness {
   sourceId: string;
   sourceUrl?: string;
   confidence?: string;
+  isMock?: boolean;
+  rapidApiId?: string;
   name: string; // Normalized name
   businessName: string; // Backwards compatible alias
   category: string;

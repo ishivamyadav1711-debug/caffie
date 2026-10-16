@@ -18,6 +18,7 @@ export interface ProviderHealth {
 }
 
 export interface SystemProvidersHealth {
+  primaryProvider: string;
   rapidapi: ProviderHealth;
   googlePlaces: ProviderHealth;
   osm: ProviderHealth;
@@ -153,6 +154,7 @@ export class ProviderHealthService {
     }
 
     return {
+      primaryProvider: (process.env.PRIMARY_DISCOVERY_PROVIDER || 'rapidapi').toLowerCase(),
       rapidapi: rapidApiHealth,
       googlePlaces: googleHealth,
       osm: osmHealth,

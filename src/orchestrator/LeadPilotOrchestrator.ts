@@ -347,16 +347,27 @@ export class LeadPilotOrchestrator {
       job.discovered = discoveryOutput.rawCount + cachedCandidates.length;
       job.sourceComplete = discoveryOutput.sourceComplete || cachedCandidates.length > 0;
       job.statusReason = discoveryOutput.statusReason;
-      job.providerStats = discoveryOutput.providerStats as any;
+      job.primaryProvider = 'rapidapi';
+      job.providerStats = {
+        primaryProvider: 'rapidapi',
+        ...discoveryOutput.providerStats,
+      } as any;
 
+      const rStats = discoveryOutput.providerStats.rapidapi;
       const gStats = discoveryOutput.providerStats.googlePlaces;
       const oStats = discoveryOutput.providerStats.osm;
       const wStats = discoveryOutput.providerStats.webSearch;
       const dStats = discoveryOutput.providerStats.directory;
 
       job.providersReport = {
+        rapidapi: {
+          status: rStats?.status || (process.env.RAPIDAPI_MOCK_MODE === 'true' ? 'SUCCESS' : (!process.env.RAPIDAPI_KEY ? 'NOT_CONFIGURED' : (rStats && rStats.rawCount > 0 ? 'SUCCESS' : 'NO_RESULTS'))),
+          discovered: rStats?.rawCount || 0,
+          pagesRequested: rStats?.pagesRequested || (rStats && rStats.rawCount > 0 ? 1 : 0),
+          errors: rStats?.errors || [],
+        },
         googlePlaces: {
-          status: gStats?.status || (!process.env.GOOGLE_PLACES_API_KEY ? 'NOT_CONFIGURED' : (gStats && gStats.rawCount > 0 ? 'SUCCESS' : 'NO_RESULTS')),
+          status: gStats?.status || (process.env.GOOGLE_PLACES_ENABLED !== 'true' ? 'DISABLED' : (!process.env.GOOGLE_PLACES_API_KEY ? 'NOT_CONFIGURED' : (gStats && gStats.rawCount > 0 ? 'SUCCESS' : 'NO_RESULTS'))),
           discovered: gStats?.rawCount || 0,
           pagesRequested: gStats?.pagesRequested || (gStats && gStats.rawCount > 0 ? 1 : 0),
           errors: gStats?.errors || [],
@@ -815,23 +826,37 @@ export class LeadPilotOrchestrator {
         }
 
 
-        const resolvedSources = b.sources && b.sources.length > 0 ? b.sources : [b.source || 'google_places'];
+        const isCandidateMock = Boolean(
+          b.isMock ||
+          (b as any).rawTags?.isMock ||
+          (b as any).rawTags?.isMockDemo ||
+          b.confidence === 'DEMO_MOCK' ||
+          b.source === 'rapidapi (mock demo)' ||
+          b.sources?.some(s => s.includes('mock'))
+        );
+
+        const resolvedSources = b.sources && b.sources.length > 0 ? b.sources : [b.source || 'rapidapi'];
         const resolvedEvidence =
           b.sourceEvidence && b.sourceEvidence.length > 0
             ? b.sourceEvidence.map((ev: any) => ({
-                sourceName: ev.source || ev.sourceName || 'google_places',
+                sourceName: ev.source || ev.sourceName || 'rapidapi',
                 sourceId: ev.sourceId,
                 rawTags: ev.rawTags,
                 observedAt: new Date().toISOString(),
               }))
             : [
                 {
-                  sourceName: b.source || 'google_places',
+                  sourceName: b.source || 'rapidapi',
                   sourceId: b.sourceId,
                   rawTags: b.rawTags,
                   observedAt: new Date().toISOString(),
                 },
               ];
+
+        const rapidApiId =
+          b.rawTags?.rapidApiId ||
+          (b.source === 'rapidapi' ? b.sourceId : undefined) ||
+          b.sourceEvidence?.find((e: any) => e.source === 'rapidapi' || e.sourceName === 'rapidapi')?.sourceId;
 
         const googlePlaceId =
           b.rawTags?.googlePlaceId ||
@@ -883,26 +908,28 @@ export class LeadPilotOrchestrator {
           https: httpsSecure,
           socialLinks: {},
           contacts,
+          isMock: isCandidateMock,
+          rapidApiId,
+          googlePlaceId: b.googlePlaceId || googlePlaceId,
           businessVerificationStatus: 'VERIFIED',
           locationVerificationStatus: 'VERIFIED',
-          auditIssues: webClass.detectedIssues.map((issue) => ({ issue, category: 'technical' as const, severity: 'medium' as const, evidence: issue })),
+          auditIssues: isCandidateMock ? [] : webClass.detectedIssues.map((issue) => ({ issue, category: 'technical' as const, severity: 'medium' as const, evidence: issue })),
           scoreBreakdown: scoreResult.breakdown,
           leadScore: scoreResult.score,
           sources: resolvedSources,
           sourceEvidence: resolvedEvidence,
           enrichmentStatus: 'QUALIFIED',
           auditStatus: webClass.hasEvidenceBackedImprovement ? 'AUDITED' : 'PENDING',
-          googlePlaceId: b.googlePlaceId || googlePlaceId,
-          rating: b.rating !== undefined ? b.rating : null,
-          userRatingCount: b.userRatingCount !== undefined ? b.userRatingCount : null,
-          reviewCount: b.userRatingCount !== undefined ? b.userRatingCount : null,
+          rating: isCandidateMock ? null : (b.rating !== undefined ? b.rating : null),
+          userRatingCount: isCandidateMock ? null : (b.userRatingCount !== undefined ? b.userRatingCount : null),
+          reviewCount: isCandidateMock ? null : (b.userRatingCount !== undefined ? b.userRatingCount : null),
           businessStatus: b.businessStatus,
-          positiveReviewDataAvailable: b.positiveReviewDataAvailable,
-          positiveReviewCount: b.positiveReviewCount,
-          negativeReviewCount: b.negativeReviewCount,
-          neutralReviewCount: b.neutralReviewCount,
-          positiveReviewRatio: b.positiveReviewRatio,
-          reviews: b.reviews,
+          positiveReviewDataAvailable: isCandidateMock ? false : b.positiveReviewDataAvailable,
+          positiveReviewCount: isCandidateMock ? null : b.positiveReviewCount,
+          negativeReviewCount: isCandidateMock ? null : b.negativeReviewCount,
+          neutralReviewCount: isCandidateMock ? null : b.neutralReviewCount,
+          positiveReviewRatio: isCandidateMock ? null : b.positiveReviewRatio,
+          reviews: isCandidateMock ? [] : b.reviews,
           osmId,
           provenance: {
             phone: {
@@ -1189,8 +1216,13 @@ export class LeadPilotOrchestrator {
 
       job.rotationStats = rotationResult.stats;
 
-      // Queue Background Enrichment for Delivered Leads
-      for (const entity of initialEntities) {
+      // Fast response assembly with truthful metrics, strictly bounded by requestedLeads
+      const deliveredEntities = initialEntities.slice(0, job.requestedLeads);
+
+      // Queue Background Enrichment ONLY for Delivered Non-Mock Leads (Section 14 & Safety Guarantees)
+      for (const entity of deliveredEntities) {
+        if (entity.isMock) continue; // Skip synthetic mock demo records
+
         if (plan.plannedFilters.enrichmentFilters.requireEmailExtraction && !entity.email && entity.website) {
           backgroundEnrichmentQueue.enqueue({
             leadId: entity.leadId,
@@ -1235,7 +1267,7 @@ export class LeadPilotOrchestrator {
           backgroundJobsQueued++;
         }
 
-        // Always queue commercial intelligence
+        // Always queue commercial intelligence for genuine delivered leads
         backgroundEnrichmentQueue.enqueue({
           leadId: entity.leadId,
           searchId: job.id,
@@ -1246,8 +1278,6 @@ export class LeadPilotOrchestrator {
         backgroundJobsQueued++;
       }
 
-      // Fast response assembly with truthful metrics, strictly bounded by requestedLeads
-      const deliveredEntities = initialEntities.slice(0, job.requestedLeads);
       const phoneCount = deliveredEntities.filter((l) => Boolean(l.phone)).length;
       const emailCount = deliveredEntities.filter((l) => Boolean(l.email)).length;
       const phoneOrEmailCount = deliveredEntities.filter((l) => Boolean(l.phone || l.email)).length;
@@ -1291,7 +1321,7 @@ export class LeadPilotOrchestrator {
         websiteUnreachableCount: unreachableCount,
         websiteNeedsImprovementCount: needsImprovementCount,
         finalQualifiedCount: initialEntities.length,
-        deliveredCount: initialEntities.length,
+        deliveredCount: deliveredEntities.length,
       };
 
       job.rejectedCandidates = [
@@ -1323,19 +1353,19 @@ export class LeadPilotOrchestrator {
       ];
 
       // Section 10 & 11: Truthful status semantics
-      if (initialEntities.length >= job.requestedLeads) {
+      if (deliveredEntities.length >= job.requestedLeads) {
         job.sourceStatus = 'COMPLETE';
-        job.statusReason = `Discovered and qualified ${initialEntities.length} verified leads satisfying all criteria.`;
-      } else if (initialEntities.length > 0) {
+        job.statusReason = `Discovered and qualified ${deliveredEntities.length} verified leads satisfying all criteria.`;
+      } else if (deliveredEntities.length > 0) {
         job.sourceStatus = 'PARTIAL';
-        job.statusReason = `Delivered ${initialEntities.length} of ${job.requestedLeads} qualified leads. All configured discovery sources evaluated.`;
+        job.statusReason = `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified leads. All configured discovery sources evaluated.`;
       } else {
         job.sourceStatus = 'NO_RESULTS';
         job.statusReason = `0 leads met the selected criteria.`;
       }
 
-      // Persist delivered leads in LeadPilot database for instant reuse & rotation (Section 12)
-      leadPilotDb.upsertLeadsBatch(initialEntities);
+      // Persist delivered leads in LeadPilot database for instant reuse & rotation (Section 12), excluding synthetic mock demo leads
+      leadPilotDb.upsertLeadsBatch(deliveredEntities.filter((e) => !e.isMock));
 
       // Mark status as DISCOVERY_COMPLETE immediately!
       job.status = 'DISCOVERY_COMPLETE';

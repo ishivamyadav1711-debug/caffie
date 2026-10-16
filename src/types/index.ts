@@ -147,13 +147,14 @@ export interface SearchDiagnostics {
 }
 
 export interface ProviderStats {
-  rapidapi?: { rawCount: number; status: string; durationMs: number; errors?: string[] };
-  googlePlaces?: { rawCount: number; status: string; durationMs: number; errors?: string[] };
-  osm: { rawCount: number; status: string; durationMs: number; errors?: string[] };
-  web: { rawCount: number; status: string; durationMs: number; errors?: string[] };
-  webSearch?: { rawCount: number; status: string; durationMs: number; errors?: string[] };
-  businessProvider?: { rawCount: number; status: string; durationMs: number; errors?: string[] };
-  directory?: { rawCount: number; status: string; durationMs: number; errors?: string[] };
+  primaryProvider?: string;
+  rapidapi?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
+  googlePlaces?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
+  osm: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
+  web: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
+  webSearch?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
+  businessProvider?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
+  directory?: { rawCount: number; status: string; durationMs: number; reason?: string; errors?: string[] };
 }
 
 export interface PipelineBreakdown {
@@ -248,7 +249,9 @@ export interface LeadReview {
 
 export interface Lead {
   id: string;
-  source: string; // e.g. "google_places", "openstreetmap"
+  isMock?: boolean;
+  rapidApiId?: string;
+  source: string; // e.g. "rapidapi", "google_places", "openstreetmap"
   sources?: string[];
   sourceEvidence?: any[];
   sourceId?: string; // e.g. "ChIJN1t_tDeuEmsRUsoyG83frY4"

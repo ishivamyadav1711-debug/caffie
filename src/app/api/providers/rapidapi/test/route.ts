@@ -23,19 +23,22 @@ export async function GET(req: NextRequest) {
       maxLeadsPerRun: parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10),
       allowedCountries: process.env.ALLOWED_DISCOVERY_COUNTRIES || 'IN,US,CA',
       message: isMock
-        ? 'RapidAPI Maps Data provider is running in safe MOCK/DEMO mode (zero external credits consumed). Pass ?live=true to run a mock query.'
+        ? 'RapidAPI Maps Data provider is running in safe MOCK/DEMO mode (zero external credits consumed). Pass ?live=true to run a live connectivity test.'
         : isConfigured
-        ? 'RapidAPI Maps Data provider is configured with API key. Pass ?live=true to run a live test query.'
-        : 'RAPIDAPI_KEY is not configured on the server. Set RAPIDAPI_KEY in .env.local or set RAPIDAPI_MOCK_MODE=true for local testing.',
+        ? 'RapidAPI Maps Data provider is configured with API key. Pass ?live=true to run a live connectivity test.'
+        : 'RAPIDAPI_KEY is not configured on the server. Set RAPIDAPI_KEY in .env.local.',
     });
   }
 
-  if (!isConfigured) {
+  const rawApiKey = process.env.RAPIDAPI_KEY;
+  const apiKey = rawApiKey ? rawApiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+
+  if (!apiKey || apiKey.length === 0 || apiKey === 'mock' || apiKey === 'demo') {
     return NextResponse.json(
       {
         provider: 'rapidapi',
         configured: false,
-        error: 'RAPIDAPI_KEY is missing or provider is disabled via RAPIDAPI_ENABLED=false.',
+        error: 'RAPIDAPI_KEY is missing or empty in server environment. Please set RAPIDAPI_KEY in .env.local.',
       },
       { status: 400 }
     );
@@ -46,26 +49,23 @@ export async function GET(req: NextRequest) {
     state: url.searchParams.get('state') || 'Texas',
     city: url.searchParams.get('city') || 'Austin',
     country: url.searchParams.get('country') || 'USA',
-    limit: 5,
+    limit: Math.min(parseInt(url.searchParams.get('limit') || '2', 10), 5),
   };
 
-  const result = await rapidApiDiscoveryProvider.discoverBusinesses(testParams);
+  const result = await rapidApiDiscoveryProvider.executeLiveConnectivityCheck(testParams);
 
   return NextResponse.json({
     provider: 'rapidapi',
+    mode: 'LIVE_CONNECTIVITY_DIAGNOSTIC',
     configured: true,
     testQuery: testParams,
-    status: result.status,
-    rawCount: result.rawCount,
-    statusReason: result.statusReason,
-    durationMs: result.durationMs,
-    sampleBusinesses: result.businesses.slice(0, 2).map((b) => ({
-      name: b.name,
-      address: b.address,
-      phone: b.phone,
-      website: b.website,
-      rating: b.rating,
-      userRatingCount: b.userRatingCount,
-    })),
+    success: result.success,
+    httpStatus: result.httpStatus,
+    providerStatus: result.providerStatus,
+    rawRecordsCount: result.rawRecordsCount,
+    latencyMs: result.latencyMs,
+    endpoint: result.endpoint,
+    sampleVenues: result.sampleVenues,
+    error: result.error || null,
   });
 }

@@ -83,6 +83,13 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
 
   const toggleSelectLead = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const targetLead = leads.find((l) => l.id === id);
+    if (targetLead?.isMock) {
+      if (onShowToast) {
+        onShowToast('Outreach Disabled', 'Outreach is disabled for mock/demo records.', 'info');
+      }
+      return;
+    }
     setSelectedLeadIds((prev) => {
       const copy = new Set(prev);
       if (copy.has(id)) copy.delete(id);
@@ -92,16 +99,40 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   };
 
   // Multi-Source transparency logic
+  const rapidCount = (providerStats as any)?.rapidapi?.rawCount ?? 0;
+  const rapidStatus = (providerStats as any)?.rapidapi?.status || 'PENDING';
+  const isRapidDemo = Boolean(
+    (providerStats as any)?.rapidapi?.mockMode ||
+    rapidStatus === 'DEMO_MOCK' ||
+    leads.some((l) => l.isMock)
+  );
+
   const googleCount = providerStats?.googlePlaces?.rawCount ?? 0;
-  const googleStatus = providerStats?.googlePlaces?.status || 'PENDING';
+  const googleStatus = providerStats?.googlePlaces?.status || 'DISABLED';
   const osmCount = providerStats?.osm?.rawCount ?? pipelineStats?.rawOsmCount ?? 0;
   const osmStatus = providerStats?.osm?.status || 'NOT_NEEDED';
   const mergedUnique = pipelineBreakdown?.deduplicatedCount ?? pipelineStats?.deduplicatedCount ?? 0;
   const enrichedCount = pipelineBreakdown?.phoneOrEmailCount ?? summary?.hasPhoneOrEmail ?? 0;
   const requestedLimit = pipelineStats?.requestedLimit ?? 100;
 
-  const isGoogleExecuted = googleCount > 0 && (googleStatus === 'COMPLETE' || googleStatus === 'SUCCESS' || googleStatus === 'PARTIAL');
-  const providerLabel = 'PRIMARY: Google Places';
+  const primaryProvider = (providerStats as any)?.primaryProvider || 'rapidapi';
+  const isRapidPrimary = primaryProvider === 'rapidapi';
+  const isRapidLiveSuccess =
+    !isRapidDemo &&
+    (rapidStatus === 'SUCCESS' || rapidStatus === 'COMPLETE' || rapidStatus === 'PARTIAL') &&
+    rapidCount > 0 &&
+    leads.length > 0 &&
+    !leads.some((l) => l.isMock);
+
+  const providerLabel = isRapidPrimary
+    ? isRapidDemo
+      ? 'PRIMARY: RapidAPI Maps Data (Demo Mode)'
+      : isRapidLiveSuccess
+      ? 'PRIMARY: RapidAPI Maps Data (LIVE)'
+      : rapidStatus === 'AUTH_FAILED' || rapidStatus === 'RATE_LIMITED' || rapidStatus === 'FAILED'
+      ? 'PRIMARY: RapidAPI Maps Data (Failed)'
+      : 'PRIMARY: RapidAPI Maps Data'
+    : 'PRIMARY: Google Places';
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -218,8 +249,9 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   // Export handler
   const handleExport = (format: 'CSV' | 'Excel') => {
     setIsExportDropdownOpen(false);
-    if (leads.length === 0) {
-      onShowToast('Export Notice', 'No leads available to export.', 'info');
+    const exportableLeads = leads.filter((l) => !l.isMock);
+    if (exportableLeads.length === 0) {
+      onShowToast('Export Notice', 'Data export is disabled for mock/demo records.', 'info');
       return;
     }
 
@@ -236,7 +268,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
       'Source'
     ];
 
-    const rows = leads.map((l) => [
+    const rows = exportableLeads.map((l) => [
       `"${l.businessName.replace(/"/g, '""')}"`,
       `"${l.industry.replace(/"/g, '""')}"`,
       `"${l.location.city}${l.location.state ? `, ${l.location.state}` : ''}"`,
@@ -246,7 +278,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
       `"${l.website.url || 'Not available'}"`,
       `"${l.website.status}"`,
       `"${(l.website.detectedIssues || []).join('; ').replace(/"/g, '""')}"`,
-      `"${l.source || 'Google Places + Firecrawl'}"`
+      `"${l.source || 'RapidAPI Maps Data'}"`
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -259,11 +291,20 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
     link.click();
     document.body.removeChild(link);
 
-    onShowToast(`Exported ${leads.length} Leads`, `Saved as ${format} file.`, 'success');
+    onShowToast(`Exported ${exportableLeads.length} Leads`, `Saved as ${format} file.`, 'success');
   };
 
   // Render Website Status Cell
   const renderWebsiteStatusCell = (lead: Lead) => {
+    if (lead.isMock) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10.5px] font-semibold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200" title="Synthetic demo domain">
+          <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+          Demo Domain
+        </span>
+      );
+    }
+
     const isNoWeb = !lead.website.hasWebsite || lead.website.status === 'No Website' || !lead.website.url;
     const isUnreachable = 
       lead.website.status === 'Unreachable' || 
@@ -316,6 +357,15 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
 
   // Render Outreach Status Cell
   const renderOutreachStatusCell = (lead: Lead) => {
+    if (lead.isMock) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-semibold uppercase tracking-wider bg-slate-100 text-slate-500 border border-slate-200" title="Outreach is disabled for mock/demo records">
+          <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+          Demo Only
+        </span>
+      );
+    }
+
     const raw = String(lead.outreachStatus || '').toUpperCase();
 
     if (raw === 'SENT' || raw === 'DELIVERED' || raw === 'READ') {
@@ -371,7 +421,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
           </h2>
           {hasSearched && !isSearching && leads.length > 0 && (
             <p className="text-[12px] text-[#64748B] mt-0.5">
-              {leads.length} {leads.length === 1 ? 'real business' : 'real businesses'} discovered via Google Places, OpenStreetMap & Website Audit
+              {leads.length} {leads.length === 1 ? 'business' : 'businesses'} discovered via {isRapidPrimary ? 'RapidAPI Maps Data' : 'Google Places'}, OpenStreetMap & Website Audit
             </p>
           )}
         </div>
@@ -462,7 +512,9 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold text-white flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${
-                searchStatus === 'COMPLETE'
+                isRapidDemo
+                  ? 'bg-amber-400'
+                  : searchStatus === 'COMPLETE'
                   ? 'bg-teal-400'
                   : searchStatus === 'PROVIDER_FAILURE'
                   ? 'bg-rose-400'
@@ -473,22 +525,18 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
               {providerLabel}
             </span>
             <span className="text-slate-600">|</span>
-            <span>Google: <strong className="text-white">
-              {googleStatus === 'PROVIDER_NOT_CONFIGURED' || googleStatus === 'NOT_CONFIGURED' || googleStatus === 'DISABLED'
-                ? 'Not Configured'
-                : googleStatus === 'AUTH_FAILED'
-                ? 'Auth Failed'
-                : googleStatus === 'RATE_LIMITED'
+            <span>RapidAPI: <strong className="text-white">
+              {rapidStatus === 'DEMO_MOCK' || isRapidDemo
+                ? (rapidCount > 0 ? `Demo Mock (${rapidCount})` : 'Demo Mock')
+                : rapidStatus === 'COMPLETE' || rapidStatus === 'SUCCESS' || rapidStatus === 'PARTIAL'
+                ? (rapidCount > 0 ? `LIVE (${rapidCount})` : 'Active')
+                : rapidStatus === 'RATE_LIMITED'
                 ? 'Rate Limited'
-                : googleStatus === 'REQUEST_FAILED' || googleStatus === 'PROVIDER_FAILURE' || googleStatus === 'FAILED'
+                : rapidStatus === 'AUTH_FAILED'
+                ? 'Auth Failed'
+                : rapidStatus === 'FAILED'
                 ? 'Failed'
-                : googleStatus === 'NO_RESULTS'
-                ? 'No Results'
-                : googleStatus === 'PENDING'
-                ? 'Pending'
-                : googleStatus === 'COMPLETE' || googleStatus === 'SUCCESS' || googleStatus === 'PARTIAL'
-                ? (googleCount > 0 ? `Active (${googleCount})` : 'Active')
-                : googleStatus}
+                : rapidStatus}
             </strong></span>
             <span>•</span>
             <span>OSM: <strong className="text-white">
@@ -505,6 +553,14 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                 : osmStatus === 'SUPPLEMENTAL' || osmStatus === 'NOT_NEEDED'
                 ? (osmCount > 0 ? `Active (${osmCount})` : 'Supplemental')
                 : osmStatus}
+            </strong></span>
+            <span>•</span>
+            <span>Google: <strong className="text-white">
+              {googleStatus === 'DISABLED' || googleStatus === 'PROVIDER_NOT_CONFIGURED' || googleStatus === 'NOT_CONFIGURED'
+                ? 'Disabled'
+                : googleStatus === 'COMPLETE' || googleStatus === 'SUCCESS'
+                ? (googleCount > 0 ? `Active (${googleCount})` : 'Active')
+                : googleStatus}
             </strong></span>
             <span>•</span>
             <span>Merged: <strong className="text-white">{mergedUnique}</strong></span>
@@ -712,10 +768,10 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
               <Loader2 className="h-6 w-6 animate-spin text-teal-700" />
             </div>
             <h3 className="text-[16px] font-bold text-[#0F172A]">
-              Finding real businesses on Google Places & Firecrawl...
+              Finding real businesses on RapidAPI &amp; OpenStreetMap...
             </h3>
             <p className="text-[13px] text-[#64748B] max-w-md mt-1.5 leading-relaxed">
-              Crawling websites, extracting verified emails, and analyzing technical quality.
+              Crawling websites, extracting verified contacts, and analyzing technical quality.
             </p>
           </div>
         )}
@@ -745,10 +801,10 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                   <AlertTriangle className="h-6 w-6 text-amber-600" />
                 </div>
                 <h3 className="text-[16px] font-bold text-[#0F172A]">
-                  Google Places Provider Not Configured
+                  Primary Discovery Provider Not Configured
                 </h3>
                 <p className="text-[13px] text-[#64748B] max-w-lg mt-1 leading-relaxed">
-                  Google Places is designated as Primary Discovery Provider, but <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[11px] font-mono">GOOGLE_PLACES_API_KEY</code> is not configured on the server. OpenStreetMap fallback was executed.
+                  RapidAPI Maps Data is designated as Primary Discovery Provider, but <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[11px] font-mono">RAPIDAPI_KEY</code> is not configured on the server. OpenStreetMap fallback was executed.
                 </p>
               </div>
             ) : searchStatus === 'PROVIDER_FAILURE' ? (
@@ -963,16 +1019,26 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                 <th className="px-3 py-3 w-8">
                   <input
                     type="checkbox"
-                    checked={paginatedLeads.length > 0 && paginatedLeads.every((l) => selectedLeadIds.has(l.id))}
+                    checked={
+                      paginatedLeads.filter((l) => !l.isMock).length > 0 &&
+                      paginatedLeads.filter((l) => !l.isMock).every((l) => selectedLeadIds.has(l.id))
+                    }
                     onChange={() => {
-                      if (paginatedLeads.every((l) => selectedLeadIds.has(l.id))) {
+                      const nonMockLeads = paginatedLeads.filter((l) => !l.isMock);
+                      if (nonMockLeads.length === 0) {
+                        if (onShowToast) {
+                          onShowToast('Outreach Notice', 'Outreach is disabled for mock/demo records.', 'info');
+                        }
+                        return;
+                      }
+                      if (nonMockLeads.every((l) => selectedLeadIds.has(l.id))) {
                         setSelectedLeadIds(new Set());
                       } else {
-                        setSelectedLeadIds(new Set(paginatedLeads.map((l) => l.id)));
+                        setSelectedLeadIds(new Set(nonMockLeads.map((l) => l.id)));
                       }
                     }}
                     className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
-                    title="Select / Deselect all"
+                    title="Select / Deselect all (Excludes demo records)"
                   />
                 </th>
                 <th className="px-5 py-3">Business</th>
@@ -1010,17 +1076,26 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                       <input
                         type="checkbox"
                         checked={selectedLeadIds.has(lead.id)}
+                        disabled={Boolean(lead.isMock)}
                         onChange={() => {}}
-                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer mt-0.5"
+                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer mt-0.5 disabled:cursor-not-allowed disabled:opacity-40"
+                        title={lead.isMock ? 'Outreach is disabled for mock/demo records' : 'Select lead'}
                       />
                     </td>
 
                     {/* 1. Business */}
                     <td className="px-5 py-3.5 align-top">
                       <div className="flex flex-col">
-                        <span className="font-semibold text-[#0F172A] group-hover:text-teal-700 transition-colors">
-                          {lead.businessName}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-[#0F172A] group-hover:text-teal-700 transition-colors">
+                            {lead.businessName}
+                          </span>
+                          {lead.isMock && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              DEMO
+                            </span>
+                          )}
+                        </div>
                         {lead.category && (
                           <span className="text-[11px] text-[#64748B] capitalize">
                             {lead.category}
@@ -1071,7 +1146,11 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
 
                     {/* Rating & Reviews */}
                     <td className="px-3 py-3.5 align-top whitespace-nowrap">
-                      {typeof lead.rating === 'number' ? (
+                      {lead.isMock ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200">
+                          Demo Mock
+                        </span>
+                      ) : typeof lead.rating === 'number' ? (
                         <div className="flex flex-col text-[11.5px]">
                           <span className="font-bold text-[#0F172A] flex items-center gap-1">
                             <span className="text-amber-500">★</span>
@@ -1197,16 +1276,43 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                     {/* 10. Source */}
                     <td className="px-3 py-3.5 align-top whitespace-nowrap">
                       <div className="flex flex-wrap gap-1 max-w-[140px]">
+                        {lead.isMock ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-amber-50 text-amber-800 border-amber-300">
+                            DEMO / MOCK
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold border bg-emerald-50 text-emerald-800 border-emerald-300">
+                            LIVE
+                          </span>
+                        )}
                         {((lead as any).sources && (lead as any).sources.length > 0
                           ? (lead as any).sources
-                          : [lead.source || 'OpenStreetMap']
+                          : [lead.source || 'rapidapi']
                         ).map((s: string, idx: number) => {
-                          const isOsm = s === 'osm' || s === 'OpenStreetMap';
-                          const isWeb = s === 'web_search' || s === 'Public Web Discovery Engine';
-                          const isDir = s === 'directory' || s === 'Public Business Directory Provider';
-                          const label = isOsm ? 'OSM' : isWeb ? 'Web' : isDir ? 'Directory' : s;
-                          const color = isOsm
+                          const sLower = String(s).toLowerCase();
+                          const isRapid = sLower.includes('rapidapi');
+                          const isOsm = sLower === 'osm' || sLower.includes('openstreetmap');
+                          const isGoogle = sLower.includes('google');
+                          const isWeb = sLower === 'web_search' || sLower.includes('web');
+                          const isDir = sLower === 'directory' || sLower.includes('directory');
+
+                          const label = isRapid
+                            ? 'RapidAPI'
+                            : isOsm
+                            ? 'OSM'
+                            : isGoogle
+                            ? 'Google'
+                            : isWeb
+                            ? 'Web'
+                            : isDir
+                            ? 'Directory'
+                            : s;
+                          const color = isRapid
+                            ? 'bg-teal-50 text-teal-700 border-teal-200'
+                            : isOsm
                             ? 'bg-sky-50 text-sky-700 border-sky-200'
+                            : isGoogle
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
                             : isWeb
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : 'bg-purple-50 text-purple-700 border-purple-200';
@@ -1284,7 +1390,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
       {/* Bulk AI Outreach Modal */}
       {showBulkOutreachModal && (
         <BulkAIOutreachModal
-          bulkLeads={leads.filter((l) => selectedLeadIds.has(l.id))}
+          bulkLeads={leads.filter((l) => selectedLeadIds.has(l.id) && !l.isMock)}
           onClose={() => setShowBulkOutreachModal(false)}
           onSuccess={() => {
             setSelectedLeadIds(new Set());

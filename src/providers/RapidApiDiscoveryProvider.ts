@@ -109,6 +109,35 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
   }
 
   /**
+   * Safely resolves Gateway / Base URL, Host header, and Endpoint path.
+   * Handles bare hostnames, base URLs, and full endpoint URLs without double-prefixing.
+   */
+  public resolveGatewayEndpoint(): { url: URL; hostHeader: string } {
+    const rawHostOrUrl =
+      process.env.RAPIDAPI_BASE_URL ||
+      process.env.RAPIDAPI_GATEWAY_URL ||
+      process.env.RAPIDAPI_HOST ||
+      'maps-data.p.rapidapi.com';
+    const rawEndpoint = process.env.RAPIDAPI_ENDPOINT_PATH || '/searchmaps.php';
+
+    let baseStr = rawHostOrUrl.trim().replace(/^["']|["']$/g, '').trim();
+    if (!baseStr.startsWith('http://') && !baseStr.startsWith('https://')) {
+      baseStr = `https://${baseStr}`;
+    }
+
+    const parsedBase = new URL(baseStr);
+    const hostHeader = process.env.RAPIDAPI_HOST_HEADER || parsedBase.host;
+
+    let targetPath = rawEndpoint.startsWith('/') ? rawEndpoint : `/${rawEndpoint}`;
+    if (parsedBase.pathname && parsedBase.pathname !== '/') {
+      targetPath = parsedBase.pathname;
+    }
+
+    const resolvedUrl = new URL(targetPath, parsedBase.origin);
+    return { url: resolvedUrl, hostHeader };
+  }
+
+  /**
    * Normalizes an individual place item from RapidAPI Maps Data into canonical RawDiscoveredBusiness schema.
    * Completely decoupled from provider-internal key names.
    */
@@ -322,27 +351,43 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
 
     if (isMockMode) {
       const maxLeadsAllowed = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
-      const demoCount = Math.min(Math.max(params.limit || 5, 1), Math.min(5, maxLeadsAllowed));
+      const demoCount = Math.min(Math.max(params.limit || 10, 1), maxLeadsAllowed);
+      const isIndia = countryParam.toLowerCase().includes('in') || countryParam.toLowerCase().includes('india');
       const demoBusinesses: RawDiscoveredBusiness[] = Array.from({ length: demoCount }, (_, idx) => {
         const id = idx + 1;
-        const name = `[DEMO MOCK] ${params.industry} Service ${id}`;
+        const name = `[DEMO MOCK] ${params.industry} Demo Company ${id}`;
+        // Standard fictional phone ranges (RFC/NANP 555-01xx for US/CA, 99999 for IN)
+        const demoPhone = isIndia ? `+91 99999 000${id.toString().padStart(2, '0')}` : `+1 (555) 01${id.toString().padStart(2, '0')}`;
+        // .invalid TLD reserved for fictional/demo testing under RFC 2606
+        const demoWebsite = `https://demo-${id}.invalid`;
         return {
           source: 'rapidapi',
           sources: ['rapidapi (mock demo)'],
           sourceId: `rapidapi_demo_${params.industry.toLowerCase().replace(/[^a-z0-9]/g, '')}_${id}`,
+          rapidApiId: `rapidapi_demo_${id}`,
+          isMock: true,
           confidence: 'DEMO_MOCK',
           name,
           businessName: name,
           category: params.industry,
-          address: `${id * 123} Commercial Way, ${resolvedArea}, ${countryParam}`,
+          types: [
+            params.industry.toLowerCase(),
+            params.industry.toLowerCase().replace(/s$/, ''),
+          ],
+          address: `${id * 100} Fictional Way, Suite ${id}, ${resolvedArea}, ${countryParam}`,
           city: params.city,
           state: params.state,
-          phone: countryParam.toLowerCase().includes('india') ? `+91 98200 ${10000 + id}` : `+1 512 555 ${1000 + id}`,
-          website: `https://example-demo-${id}.com`,
-          rating: 4.5,
-          userRatingCount: 25 * id,
-          businessStatus: 'OPERATIONAL',
-          rawTags: { isMockDemo: true, notice: 'Generated for localhost testing (RAPIDAPI_MOCK_MODE=true).' },
+          phone: demoPhone,
+          email: `demo${id}@fictional-domain.invalid`,
+          website: demoWebsite,
+          rating: null,
+          userRatingCount: null,
+          businessStatus: 'DEMO_RECORD',
+          rawTags: {
+            isMock: true,
+            isMockDemo: true,
+            demoNotice: 'Synthetic record generated for localhost testing (RAPIDAPI_MOCK_MODE=true). Zero live API credits consumed.',
+          },
           sourceEvidence: [{ source: 'rapidapi', sourceId: `rapidapi_demo_${id}` }],
         };
       });
@@ -412,9 +457,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       const maxLeadsAllowed = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
       const targetLimit = Math.min(Math.max(params.limit || 10, 1), maxLeadsAllowed);
 
-      const host = process.env.RAPIDAPI_HOST || 'maps-data.p.rapidapi.com';
-      const endpointPath = process.env.RAPIDAPI_ENDPOINT_PATH || '/searchmaps.php';
-      const url = new URL(`https://${host}${endpointPath.startsWith('/') ? endpointPath : `/${endpointPath}`}`);
+      const { url, hostHeader } = this.resolveGatewayEndpoint();
 
       url.searchParams.set('query', cleanQuery);
       url.searchParams.set('limit', String(targetLimit));
@@ -431,7 +474,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
           const res = await fetch(url.toString(), {
             method: 'GET',
             headers: {
-              'x-rapidapi-host': host,
+              'x-rapidapi-host': hostHeader,
               'x-rapidapi-key': apiKey,
               'Accept': 'application/json',
               'User-Agent': 'LeadPilot-Engine/2.1 (business-discovery-orchestrator)',
@@ -584,6 +627,148 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       };
     } finally {
       releaseSemaphore();
+    }
+  }
+
+  /**
+   * Controlled Live Connectivity Diagnostic
+   * Makes exactly ONE controlled real HTTP request to verify credentials & endpoint connectivity.
+   * Only executed when explicitly invoked by diagnostic tooling. Never invoked in automated tests.
+   */
+  public async executeLiveConnectivityCheck(options?: {
+    industry?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    httpStatus?: number;
+    providerStatus?: string;
+    rawRecordsCount: number;
+    latencyMs: number;
+    endpoint: string;
+    sampleVenues: Array<{
+      name: string;
+      address?: string;
+      phone?: string;
+      website?: string;
+      rating?: number | null;
+      userRatingCount?: number | null;
+      placeId?: string;
+    }>;
+    error?: string;
+  }> {
+    const rawApiKey = process.env.RAPIDAPI_KEY;
+    const apiKey = rawApiKey ? rawApiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+    if (!apiKey || apiKey.length === 0 || apiKey === 'mock' || apiKey === 'demo') {
+      return {
+        success: false,
+        rawRecordsCount: 0,
+        latencyMs: 0,
+        endpoint: '',
+        sampleVenues: [],
+        error: 'RAPIDAPI_KEY is not configured in server environment. Please set RAPIDAPI_KEY in .env.local.',
+      };
+    }
+
+    const { url, hostHeader } = this.resolveGatewayEndpoint();
+    const targetLimit = Math.min(Math.max(options?.limit || 2, 1), 5);
+    const country = options?.country || 'USA';
+    const countryCode = this.resolveCountryCode(country) || 'us';
+    const industry = options?.industry || 'Dentists';
+    const city = options?.city || 'Austin';
+    const state = options?.state || 'Texas';
+    const cleanQuery = `${industry} in ${city}, ${state}, ${country}`;
+
+    url.searchParams.set('query', cleanQuery);
+    url.searchParams.set('limit', String(targetLimit));
+    url.searchParams.set('country', countryCode);
+    url.searchParams.set('lang', 'en');
+    url.searchParams.set('offset', '0');
+
+    const startTime = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          'x-rapidapi-host': hostHeader,
+          'x-rapidapi-key': apiKey,
+          'Accept': 'application/json',
+          'User-Agent': 'LeadPilot-Engine/2.1 (diagnostic-connectivity-check)',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - startTime;
+
+      if (!res.ok) {
+        let errorDetails = `HTTP ${res.status}`;
+        try {
+          const body = await res.json();
+          if (body?.message || body?.error) {
+            errorDetails = `${errorDetails}: ${body.message || body.error}`;
+          }
+        } catch {
+          const raw = await res.text();
+          errorDetails = `${errorDetails}: ${raw.slice(0, 150)}`;
+        }
+        // Scrub any accidental API key echoes
+        errorDetails = errorDetails.replace(new RegExp(apiKey, 'g'), '[REDACTED]');
+
+        return {
+          success: false,
+          httpStatus: res.status,
+          rawRecordsCount: 0,
+          latencyMs,
+          endpoint: `${url.origin}${url.pathname}`,
+          sampleVenues: [],
+          error: errorDetails,
+        };
+      }
+
+      const data = await res.json();
+      let rawItems: any[] = [];
+      if (Array.isArray(data?.data)) rawItems = data.data;
+      else if (Array.isArray(data?.results)) rawItems = data.results;
+      else if (Array.isArray(data)) rawItems = data;
+
+      const sampleVenues = rawItems.slice(0, targetLimit).map((item) => ({
+        name: String(item.name || item.title || 'Unknown'),
+        address: item.full_address || item.address || undefined,
+        phone: item.phone || item.phone_number || undefined,
+        website: item.site || item.website || undefined,
+        rating: typeof item.rating === 'number' ? item.rating : null,
+        userRatingCount: typeof item.reviews === 'number' ? item.reviews : (typeof item.reviews_data === 'number' ? item.reviews_data : null),
+        placeId: item.place_id || item.business_id || undefined,
+      }));
+
+      return {
+        success: true,
+        httpStatus: res.status,
+        providerStatus: data?.status || 'OK',
+        rawRecordsCount: rawItems.length,
+        latencyMs,
+        endpoint: `${url.origin}${url.pathname}`,
+        sampleVenues,
+      };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - startTime;
+      let errMsg = String(err.message || 'Unknown network error');
+      if (apiKey) errMsg = errMsg.replace(new RegExp(apiKey, 'g'), '[REDACTED]');
+      return {
+        success: false,
+        rawRecordsCount: 0,
+        latencyMs,
+        endpoint: `${url.origin}${url.pathname}`,
+        sampleVenues: [],
+        error: errMsg,
+      };
     }
   }
 }
