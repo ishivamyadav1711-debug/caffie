@@ -4,6 +4,7 @@
  */
 
 export interface ConcurrencyLimits {
+  rapidapi: number;
   googlePlaces: number;
   osm: number;
   websiteFetch: number;
@@ -13,6 +14,7 @@ export interface ConcurrencyLimits {
 }
 
 export interface TimeoutConfig {
+  rapidapiFastMs: number;
   googlePlacesFastMs: number;
   osmFastMs: number;
   websiteLightweightMs: number;
@@ -22,6 +24,7 @@ export interface TimeoutConfig {
 
 export function getConcurrencyLimits(): ConcurrencyLimits {
   return {
+    rapidapi: parseInt(process.env.RAPIDAPI_CONCURRENCY || '2', 10),
     googlePlaces: parseInt(process.env.GOOGLE_PLACES_CONCURRENCY || '3', 10),
     osm: parseInt(process.env.OSM_CONCURRENCY || '2', 10),
     websiteFetch: parseInt(process.env.WEBSITE_FETCH_CONCURRENCY || '5', 10),
@@ -33,6 +36,7 @@ export function getConcurrencyLimits(): ConcurrencyLimits {
 
 export function getTimeoutConfig(): TimeoutConfig {
   return {
+    rapidapiFastMs: parseInt(process.env.RAPIDAPI_TIMEOUT_MS || '15000', 10),
     // Google Places needs 8s minimum from Vercel — individual page fetches average 500-1500ms
     // with retries. 2000ms caused SEARCH_DEADLINE_REACHED with 0 results.
     googlePlacesFastMs: parseInt(process.env.GOOGLE_PLACES_TIMEOUT_MS || '8000', 10),
@@ -87,6 +91,7 @@ export class AsyncSemaphore {
 // getConcurrencyLimits() reads process.env at call time, so the values
 // are correct as long as this module loads after the runtime env is available.
 export const semaphores = {
+  rapidapi: new AsyncSemaphore(parseInt(process.env.RAPIDAPI_CONCURRENCY || '2', 10)),
   googlePlaces: new AsyncSemaphore(parseInt(process.env.GOOGLE_PLACES_CONCURRENCY || '3', 10)),
   osm: new AsyncSemaphore(parseInt(process.env.OSM_CONCURRENCY || '2', 10)),
   websiteFetch: new AsyncSemaphore(parseInt(process.env.WEBSITE_FETCH_CONCURRENCY || '5', 10)),
@@ -94,3 +99,4 @@ export const semaphores = {
   pagespeed: new AsyncSemaphore(parseInt(process.env.PAGESPEED_CONCURRENCY || '2', 10)),
   webSearch: new AsyncSemaphore(parseInt(process.env.WEB_SEARCH_CONCURRENCY || '2', 10)),
 };
+

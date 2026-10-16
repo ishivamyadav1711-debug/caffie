@@ -1,4 +1,4 @@
-import { googlePlacesCircuitBreaker, osmCircuitBreaker } from '../resilience/CircuitBreaker';
+import { rapidApiCircuitBreaker, googlePlacesCircuitBreaker, osmCircuitBreaker } from '../resilience/CircuitBreaker';
 import { googleUsageTracker } from '../billing/GoogleUsageTracker';
 
 export type ProviderFailureReason =
@@ -18,6 +18,7 @@ export interface ProviderHealth {
 }
 
 export interface SystemProvidersHealth {
+  rapidapi: ProviderHealth;
   googlePlaces: ProviderHealth;
   osm: ProviderHealth;
 }
@@ -25,11 +26,54 @@ export interface SystemProvidersHealth {
 export class ProviderHealthService {
   /**
    * Checks the health and readiness of external business discovery providers.
+   * Priority: RapidAPI Maps Data (Primary) -> Google Places (Modular / Disabled by default) -> OSM (Fallback)
    */
   public checkHealth(): SystemProvidersHealth {
+    // 1. RapidAPI Maps Data Health (Primary Discovery Provider)
+    const rawRapidApiKey = process.env.RAPIDAPI_KEY;
+    const rapidApiKey = rawRapidApiKey ? rawRapidApiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+    const isRapidApiEnabled = process.env.RAPIDAPI_ENABLED !== 'false';
+    const isRapidApiConfigured = Boolean(rapidApiKey && rapidApiKey.length > 0);
+    const isRapidApiCircuitOpen = rapidApiCircuitBreaker.getState() === 'OPEN';
+
+    let rapidApiHealth: ProviderHealth;
+
+    if (!isRapidApiEnabled) {
+      rapidApiHealth = {
+        enabled: false,
+        configured: isRapidApiConfigured,
+        healthy: false,
+        reason: 'CONFIGURATION_ERROR',
+        message: 'RapidAPI provider is explicitly disabled via RAPIDAPI_ENABLED=false.',
+      };
+    } else if (!isRapidApiConfigured) {
+      rapidApiHealth = {
+        enabled: true,
+        configured: false,
+        healthy: false,
+        reason: 'MISSING_API_KEY',
+        message: 'RAPIDAPI_KEY is not configured on the server.',
+      };
+    } else if (isRapidApiCircuitOpen) {
+      rapidApiHealth = {
+        enabled: true,
+        configured: true,
+        healthy: false,
+        reason: 'TIMEOUT',
+        message: 'RapidAPI circuit breaker is OPEN due to repeated failures or timeouts.',
+      };
+    } else {
+      rapidApiHealth = {
+        enabled: true,
+        configured: true,
+        healthy: true,
+      };
+    }
+
+    // 2. Google Places Health (Modular: Disabled by default, activated ONLY via GOOGLE_PLACES_ENABLED=true)
     const rawGoogleKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
     const googleApiKey = rawGoogleKey ? rawGoogleKey.trim().replace(/^["']|["']$/g, '').trim() : '';
-    const isGoogleEnabled = process.env.GOOGLE_PLACES_ENABLED !== 'false';
+    const isGoogleEnabled = process.env.GOOGLE_PLACES_ENABLED === 'true';
     const isGoogleConfigured = Boolean(googleApiKey && googleApiKey.length > 0);
     const isGoogleCircuitOpen = googlePlacesCircuitBreaker.getState() === 'OPEN';
     const budgetCheck = googleUsageTracker.canExecuteGoogleRequest();
@@ -42,7 +86,7 @@ export class ProviderHealthService {
         configured: isGoogleConfigured,
         healthy: false,
         reason: 'CONFIGURATION_ERROR',
-        message: 'Google Places provider is explicitly disabled via GOOGLE_PLACES_ENABLED=false.',
+        message: 'Google Places provider is disabled by default. Set GOOGLE_PLACES_ENABLED=true to activate.',
       };
     } else if (!isGoogleConfigured) {
       googleHealth = {
@@ -76,7 +120,7 @@ export class ProviderHealthService {
       };
     }
 
-    // OpenStreetMap Health
+    // 3. OpenStreetMap Health (Secondary / Fallback Provider)
     const isOsmEnabled = process.env.OSM_ENABLED !== 'false';
     const isOsmCircuitOpen = osmCircuitBreaker.getState() === 'OPEN';
 
@@ -107,21 +151,20 @@ export class ProviderHealthService {
     }
 
     return {
+      rapidapi: rapidApiHealth,
       googlePlaces: googleHealth,
       osm: osmHealth,
     };
   }
 
-  /**
-   * Helper to check if Google Places is ready to be used as Primary.
-   */
+  public isRapidApiReady(): boolean {
+    return this.checkHealth().rapidapi.healthy;
+  }
+
   public isGooglePlacesReady(): boolean {
     return this.checkHealth().googlePlaces.healthy;
   }
 
-  /**
-   * Helper to check if OSM is ready to be used as Fallback.
-   */
   public isOsmReady(): boolean {
     return this.checkHealth().osm.healthy;
   }

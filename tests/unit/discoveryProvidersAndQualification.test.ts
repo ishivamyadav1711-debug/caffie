@@ -26,8 +26,12 @@ function createJsonResponse(data: any, status = 200, ok = true) {
 
 describe('P0 Lead Discovery & Qualification Regression Suite', () => {
   const originalApiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const originalEnabled = process.env.GOOGLE_PLACES_ENABLED;
+  const originalPrimary = process.env.PRIMARY_DISCOVERY_PROVIDER;
 
   beforeEach(() => {
+    process.env.PRIMARY_DISCOVERY_PROVIDER = 'google_places';
+    process.env.GOOGLE_PLACES_ENABLED = 'true';
     process.env.GOOGLE_PLACES_API_KEY = 'AIzaSyDummyTestKeyForUnitTests123456789';
     GooglePlacesDiscoveryProvider.setSimulateTimeout(false);
     GooglePlacesDiscoveryProvider.setSimulateQuotaExceeded(false);
@@ -39,6 +43,8 @@ describe('P0 Lead Discovery & Qualification Regression Suite', () => {
 
   afterEach(() => {
     process.env.GOOGLE_PLACES_API_KEY = originalApiKey;
+    process.env.GOOGLE_PLACES_ENABLED = originalEnabled;
+    process.env.PRIMARY_DISCOVERY_PROVIDER = originalPrimary;
     GooglePlacesDiscoveryProvider.setSimulateTimeout(false);
     GooglePlacesDiscoveryProvider.setSimulateQuotaExceeded(false);
     GooglePlacesDiscoveryProvider.setSimulateResults(null);

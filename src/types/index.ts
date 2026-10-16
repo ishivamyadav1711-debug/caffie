@@ -38,7 +38,7 @@ export type WebsiteFilter =
   | 'Needs Website Improvement'
   | 'Website Unreachable';
 
-export type NumberOfLeads = 25 | 50 | 100 | 250 | 500 | 1000;
+export type NumberOfLeads = 5 | 10 | 15 | 20 | 25 | 50 | 100 | 250 | 500 | 1000 | number;
 
 export interface StructuredWebsiteAudit {
   technical: {
@@ -147,6 +147,7 @@ export interface SearchDiagnostics {
 }
 
 export interface ProviderStats {
+  rapidapi?: { rawCount: number; status: string; durationMs: number; errors?: string[] };
   googlePlaces?: { rawCount: number; status: string; durationMs: number; errors?: string[] };
   osm: { rawCount: number; status: string; durationMs: number; errors?: string[] };
   web: { rawCount: number; status: string; durationMs: number; errors?: string[] };

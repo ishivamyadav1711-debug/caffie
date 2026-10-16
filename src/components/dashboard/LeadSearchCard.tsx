@@ -82,8 +82,8 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   const [contact, setContact] = useState<ContactFilter>(initialCriteria?.contact || 'All Contacts');
   const [website, setWebsite] = useState<WebsiteFilter>(initialCriteria?.website || 'All Websites');
 
-  // 6. RESULTS LIMIT: Dropdown
-  const [limit, setLimit] = useState<NumberOfLeads>(initialCriteria?.limit || 100);
+  // 6. RESULTS LIMIT: Dropdown (Default 10, Selectable: 5, 10, 15, 20)
+  const [limit, setLimit] = useState<NumberOfLeads>(initialCriteria?.limit || 10);
 
   // 7. REVIEW INTELLIGENCE FILTERS (Sections 9, 10, 11)
   const [showReviewFilters, setShowReviewFilters] = useState(false);
@@ -204,7 +204,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
     { value: 'Unreachable', label: 'Unreachable' },
   ];
 
-  const limitOptions: NumberOfLeads[] = [25, 50, 100, 250, 500];
+  const limitOptions: NumberOfLeads[] = [5, 10, 15, 20];
 
   const isSearching = jobState === 'running' || isSearchingExternal;
 

@@ -95,7 +95,10 @@ export class LeadPilotOrchestrator {
       searchId: jobId,
       status: 'PENDING',
       criteria,
-      requestedLeads: Math.max(Number(criteria.limit) || 25, 5),
+      requestedLeads: Math.min(
+        Math.max(Number(criteria.limit) || 10, 1),
+        parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10)
+      ),
       discovered: 0,
       verified: 0,
       deduplicated: 0,
@@ -322,8 +325,9 @@ export class LeadPilotOrchestrator {
         rawTags: {},
       }));
 
-      // --- STAGE 1: Fast Business Discovery (Google Places Primary + Multi-Provider Fallback) ---
-      const targetDiscoveryPool = Math.max(job.requestedLeads * 3, 100);
+      // --- STAGE 1: Fast Business Discovery (RapidAPI Primary + Multi-Provider Fallback) ---
+      const maxCeiling = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+      const targetDiscoveryPool = Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling * 2);
       timestamps.googleStart = Date.now();
       const discoveryOutput = await this.executeTrackedActor(
         businessDiscoveryActor,
@@ -336,7 +340,7 @@ export class LeadPilotOrchestrator {
           limit: targetDiscoveryPool,
           bbox,
         },
-        'Discovering businesses (Google Places Primary + Multi-Provider Fallback)...'
+        'Discovering businesses (RapidAPI Primary + Multi-Provider Fallback)...'
       );
       timestamps.googleEnd = Date.now();
 
@@ -1242,20 +1246,21 @@ export class LeadPilotOrchestrator {
         backgroundJobsQueued++;
       }
 
-      // Fast response assembly with truthful metrics
-      const phoneCount = initialEntities.filter((l) => Boolean(l.phone)).length;
-      const emailCount = initialEntities.filter((l) => Boolean(l.email)).length;
-      const phoneOrEmailCount = initialEntities.filter((l) => Boolean(l.phone || l.email)).length;
-      const workingWebsiteCount = initialEntities.filter((l) => l.websiteStatus === 'Working').length;
-      const needsImprovementCount = initialEntities.filter((l) => l.websiteStatus === 'Needs Improvement').length;
-      const unreachableCount = initialEntities.filter((l) => l.websiteStatus === 'Unreachable').length;
-      const noWebsiteCount = initialEntities.filter((l) => l.websiteStatus === 'No Website' || !l.website).length;
+      // Fast response assembly with truthful metrics, strictly bounded by requestedLeads
+      const deliveredEntities = initialEntities.slice(0, job.requestedLeads);
+      const phoneCount = deliveredEntities.filter((l) => Boolean(l.phone)).length;
+      const emailCount = deliveredEntities.filter((l) => Boolean(l.email)).length;
+      const phoneOrEmailCount = deliveredEntities.filter((l) => Boolean(l.phone || l.email)).length;
+      const workingWebsiteCount = deliveredEntities.filter((l) => l.websiteStatus === 'Working').length;
+      const needsImprovementCount = deliveredEntities.filter((l) => l.websiteStatus === 'Needs Improvement').length;
+      const unreachableCount = deliveredEntities.filter((l) => l.websiteStatus === 'Unreachable').length;
+      const noWebsiteCount = deliveredEntities.filter((l) => l.websiteStatus === 'No Website' || !l.website).length;
       const websiteAvailableCount = workingWebsiteCount + needsImprovementCount;
 
-      job.leads = initialEntities;
-      job.verified = initialEntities.length;
-      job.completed = initialEntities.length;
-      job.qualified = initialEntities.length;
+      job.leads = deliveredEntities;
+      job.verified = deliveredEntities.length;
+      job.completed = deliveredEntities.length;
+      job.qualified = deliveredEntities.length;
       job.phoneCount = phoneCount;
       job.emailCount = emailCount;
       job.phoneOrEmailCount = phoneOrEmailCount;
