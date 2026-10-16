@@ -481,15 +481,237 @@ export const CANONICAL_INDUSTRIES: Record<CanonicalIndustryId, CanonicalIndustry
   automotive: {
     id: 'automotive',
     displayName: 'Automotive',
-    aliases: ['automotive', 'car dealer', 'car repair', 'auto', 'garage'],
-    allowedGoogleTypes: ['car_dealer', 'car_repair', 'auto_parts_store', 'gas_station', 'motorcycle_dealer'],
-    forbiddenGoogleTypes: ['restaurant', 'hospital', 'school', 'real_estate_agency'],
+    aliases: [
+      'automotive',
+      'automobile',
+      'automobiles',
+      'car',
+      'cars',
+      'car dealer',
+      'car dealers',
+      'car dealership',
+      'car dealerships',
+      'auto',
+      'autos',
+      'garage',
+      'garages',
+      'auto repair',
+      'car repair',
+      'car repair and maintenance',
+      'used car dealer',
+      'used car dealers',
+      'mechanic',
+      'mechanics',
+      'tire shop',
+      'tire shops',
+      'body shop',
+      'auto body',
+      'auto body shop',
+      'motor',
+      'motors',
+      'motorcycle',
+      'motorcycles',
+      'auto service',
+      'vehicle',
+      'vehicles',
+      'towing',
+      'oil change',
+      'oil change service',
+      'brake shop',
+      'car wash',
+      'auto parts',
+      'auto parts store',
+      'auto electrical service',
+      'transmission shop',
+      'vehicle inspection station',
+      'muffler shop',
+      'auto glass shop',
+      // Canadian French aliases & category variants
+      'concessionnaire',
+      'concessionnaire automobile',
+      'concessionnaires automobiles',
+      'concessionnaire de vehicules d occasion',
+      'concessionnaire de voitures',
+      'garage automobile',
+      'mecanique automobile',
+      'mécanique automobile',
+      'atelier de mecanique',
+      'atelier de mécanique',
+      'atelier de mecanique automobile',
+      'atelier de mécanique automobile',
+      'vente d automobiles',
+      'reparation automobile',
+      'réparation automobile',
+      'atelier de reparation automobile',
+      'atelier de réparation automobile',
+      'pneu',
+      'pneus',
+      'centre du pneu',
+      'magasin de pneus',
+      'carrosserie',
+      'atelier de carrosserie',
+      'atelier de carrosserie automobile',
+      'entretien automobile',
+      'mecanicien',
+      'mécanicien',
+      'mecaniciens',
+      'mécaniciens',
+      'lave auto',
+      'remorquage',
+      'service de remorquage',
+      'service de depannage',
+      'service de dépannage',
+      'pieces d auto',
+      'pièces d auto',
+      'magasin de pieces automobiles',
+      'magasin de pièces automobiles',
+      'vehicules d occasion',
+      'véhicules d occasion',
+      'alignement des roues',
+      'vitres d autos',
+      'pare brise',
+      'service de freins'
+    ],
+    allowedGoogleTypes: [
+      'car_dealer',
+      'car_repair',
+      'auto_parts_store',
+      'gas_station',
+      'motorcycle_dealer',
+      'car_rental',
+      'car_wash',
+      'truck_dealer',
+      'used_car_dealer',
+      'tire_shop',
+      'auto_body_shop',
+      'auto_glass_shop',
+      'oil_change_service',
+      'brake_shop',
+      'transmission_shop',
+      'auto_electrical_service',
+      'vehicle_inspection_station',
+      'towing_service',
+      'mechanic',
+      'auto_repair_shop',
+      // Plain text & multi-word category titles returned by RapidAPI / Google
+      'car dealer',
+      'used car dealer',
+      'car repair and maintenance',
+      'car repair',
+      'auto repair',
+      'auto repair shop',
+      'mechanic',
+      'auto body shop',
+      'tire shop',
+      'oil change service',
+      'brake shop',
+      'car wash',
+      'towing service',
+      'auto parts store',
+      'auto glass shop',
+      'transmission shop',
+      'vehicle inspection station',
+      'motorcycle dealer',
+      'motorcycle repair shop',
+      'auto electrical service',
+      // French Canadian categories
+      'concessionnaire automobile',
+      'concessionnaire de vehicules d occasion',
+      'concessionnaire',
+      'atelier de mecanique automobile',
+      'atelier de mécanique automobile',
+      'atelier de mecanique',
+      'atelier de mécanique',
+      'atelier de reparation automobile',
+      'atelier de réparation automobile',
+      'garage automobile',
+      'garage',
+      'magasin de pneus',
+      'magasin de pieces automobiles',
+      'magasin de pièces automobiles',
+      'atelier de carrosserie automobile',
+      'atelier de carrosserie',
+      'service de remorquage',
+      'lave auto',
+      'service de changement d huile',
+      'mecanicien',
+      'mécanicien',
+      'reparation automobile',
+      'réparation automobile',
+      'vente d automobiles',
+      'entretien automobile',
+      'alignement des roues',
+      'vitres d autos',
+      'pare brise'
+    ],
+    forbiddenGoogleTypes: [
+      'restaurant',
+      'hospital',
+      'school',
+      'real_estate_agency',
+      'bakery',
+      'cafe',
+      'clothing_store',
+      'pharmacy',
+      'dentist',
+      'physiotherapist',
+      'beauty_salon',
+      'hair_salon'
+    ],
     osmTags: [
       { key: 'shop', value: 'car' },
       { key: 'shop', value: 'car_repair' },
+      { key: 'shop', value: 'car_parts' },
+      { key: 'shop', value: 'tyres' },
+      { key: 'amenity', value: 'car_wash' },
     ],
-    positiveNameKeywords: ['motors', 'automotive', 'auto service', 'car care', 'garage', 'auto repair', 'motorcycle', 'service station'],
-    negativeNameKeywords: ['restaurant', 'hospital', 'school', 'real estate'],
+    positiveNameKeywords: [
+      'motors',
+      'automotive',
+      'automobile',
+      'auto service',
+      'car care',
+      'garage',
+      'auto repair',
+      'motorcycle',
+      'service station',
+      'concessionnaire',
+      'mecanique',
+      'mécanique',
+      'carrosserie',
+      'pneu',
+      'pneus',
+      'remorquage',
+      'auto',
+      'autos',
+      'car',
+      'cars',
+      'tire',
+      'tires',
+      'brakes',
+      'freins',
+      'transmission',
+      'muffler',
+      'collision',
+      'mechanic',
+      'mécanicien',
+      'dealership',
+      'dealers',
+      'honda',
+      'toyota',
+      'ford',
+      'chevrolet',
+      'hyundai',
+      'nissan',
+      'mazda',
+      'bmw',
+      'mercedes',
+      'volkswagen',
+      'kia',
+      'audi',
+      'subaru'
+    ],
+    negativeNameKeywords: ['restaurant', 'hospital', 'school', 'real estate', 'cafe', 'bar', 'hotel'],
     discoveryQueryExpansions: ['Car Dealers in', 'Auto Repair Workshops in', 'Automotive Services in'],
     defaultCategoryLabel: 'Automotive Service',
   },
@@ -654,8 +876,22 @@ export interface IndustryValidationResult {
 }
 
 /**
+ * Normalizes category/type strings: lowercase, strip accents/diacritics, replace delimiters with spaces.
+ */
+export function normalizeCategoryText(str: string): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_\-–—/&,'’]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Validates whether a candidate business genuinely belongs to the requested industry.
- * Strictly filters out false-positives (e.g. restaurants or farms returned for Real Estate).
+ * Strictly filters out false-positives while supporting natural-language and multi-language provider categories.
  */
 export function validateIndustryRelevance(
   candidate: {
@@ -667,23 +903,29 @@ export function validateIndustryRelevance(
   requestedIndustry: string
 ): IndustryValidationResult {
   const canonicalDef = resolveCanonicalIndustry(requestedIndustry);
-  const name = (candidate.businessName || '').toLowerCase().trim();
-  const rawCategory = (candidate.category || '').toLowerCase().trim();
-  const types: string[] = Array.isArray(candidate.types)
-    ? candidate.types.map((t) => t.toLowerCase().trim())
-    : [];
+  const rawName = candidate.businessName || '';
+  const nameNorm = normalizeCategoryText(rawName);
+  const rawCategory = (candidate.category || '').trim();
+  const rawCatNorm = normalizeCategoryText(rawCategory);
 
-  if (rawCategory && !types.includes(rawCategory)) {
-    types.push(rawCategory);
+  const normalizedTypes: string[] = [];
+  if (rawCatNorm) normalizedTypes.push(rawCatNorm);
+
+  if (Array.isArray(candidate.types)) {
+    for (const t of candidate.types) {
+      const nt = normalizeCategoryText(t);
+      if (nt && !normalizedTypes.includes(nt)) normalizedTypes.push(nt);
+    }
   }
 
   // Add OSM raw tags values
   if (candidate.rawTags) {
-    if (candidate.rawTags.amenity) types.push(candidate.rawTags.amenity.toLowerCase());
-    if (candidate.rawTags.office) types.push(candidate.rawTags.office.toLowerCase());
-    if (candidate.rawTags.shop) types.push(candidate.rawTags.shop.toLowerCase());
-    if (candidate.rawTags.tourism) types.push(candidate.rawTags.tourism.toLowerCase());
-    if (candidate.rawTags.primaryType) types.push(candidate.rawTags.primaryType.toLowerCase());
+    for (const key of ['amenity', 'office', 'shop', 'craft', 'tourism', 'primaryType', 'type']) {
+      if (candidate.rawTags[key]) {
+        const nt = normalizeCategoryText(String(candidate.rawTags[key]));
+        if (nt && !normalizedTypes.includes(nt)) normalizedTypes.push(nt);
+      }
+    }
   }
 
   // If custom/other industry requested without forbidden list, perform basic name/category sanity
@@ -696,33 +938,42 @@ export function validateIndustryRelevance(
     };
   }
 
+  const normalizedAllowed = canonicalDef.allowedGoogleTypes.map(normalizeCategoryText);
+  const normalizedForbidden = canonicalDef.forbiddenGoogleTypes.map(normalizeCategoryText);
+  const normalizedAliases = canonicalDef.aliases.map(normalizeCategoryText);
+  const normalizedPosKeywords = canonicalDef.positiveNameKeywords.map(normalizeCategoryText);
+  const normalizedNegKeywords = canonicalDef.negativeNameKeywords.map(normalizeCategoryText);
+
   // --- STEP 1: STRICT FORBIDDEN TYPES REJECTION ---
-  // If ANY type matches a forbidden category for this industry
-  const matchingForbidden = types.find((t) => canonicalDef.forbiddenGoogleTypes.includes(t));
+  const matchingForbidden = normalizedTypes.find((t) =>
+    normalizedForbidden.some((f) => t === f || t.includes(f) || f.includes(t))
+  );
   if (matchingForbidden) {
-    // Check if business name has strong positive signals overriding generic tags
-    const hasStrongNameOverride = canonicalDef.positiveNameKeywords.some((kw) => name.includes(kw));
+    const hasStrongNameOverride = normalizedPosKeywords.some((kw) => nameNorm.includes(kw));
     if (!hasStrongNameOverride) {
       return {
         isValid: false,
         canonicalIndustry: canonicalDef.displayName,
-        normalizedCategory: matchingForbidden.replace(/_/g, ' '),
+        normalizedCategory: formatCategoryTitle(matchingForbidden, canonicalDef.defaultCategoryLabel),
         rejectionReason: `Category "${matchingForbidden}" strictly contradicts requested industry "${canonicalDef.displayName}".`,
         confidence: 'high',
       };
     }
   }
 
-  // --- STEP 2: POSITIVE ALLOWED TYPES MATCH ---
-  const matchingAllowed = types.find((t) => canonicalDef.allowedGoogleTypes.includes(t));
+  // --- STEP 2: POSITIVE ALLOWED TYPES / ALIAS MATCH ---
+  const matchingAllowed = normalizedTypes.find((t) =>
+    normalizedAllowed.some((a) => t === a || t.includes(a) || a.includes(t)) ||
+    normalizedAliases.some((alias) => alias.length >= 3 && (t === alias || t.includes(alias)))
+  );
+
   if (matchingAllowed) {
-    // Check if negative name keywords disqualify this candidate
-    const hasNegativeName = canonicalDef.negativeNameKeywords.some((kw) => name.includes(kw));
+    const hasNegativeName = normalizedNegKeywords.some((kw) => nameNorm.includes(kw));
     if (hasNegativeName) {
       return {
         isValid: false,
         canonicalIndustry: canonicalDef.displayName,
-        normalizedCategory: matchingAllowed.replace(/_/g, ' '),
+        normalizedCategory: formatCategoryTitle(matchingAllowed, canonicalDef.defaultCategoryLabel),
         rejectionReason: `Business name "${candidate.businessName}" matches negative signals for "${canonicalDef.displayName}".`,
         confidence: 'medium',
       };
@@ -731,20 +982,20 @@ export function validateIndustryRelevance(
     return {
       isValid: true,
       canonicalIndustry: canonicalDef.displayName,
-      normalizedCategory: formatCategoryTitle(matchingAllowed, canonicalDef.defaultCategoryLabel),
+      normalizedCategory: formatCategoryTitle(rawCategory || matchingAllowed, canonicalDef.defaultCategoryLabel),
       confidence: 'high',
     };
   }
 
   // --- STEP 3: DISAMBIGUATION VIA NAME KEYWORDS ---
-  const hasPositiveName = canonicalDef.positiveNameKeywords.some((kw) => name.includes(kw));
-  const hasNegativeName = canonicalDef.negativeNameKeywords.some((kw) => name.includes(kw));
+  const hasPositiveName = normalizedPosKeywords.some((kw) => nameNorm.includes(kw));
+  const hasNegativeName = normalizedNegKeywords.some((kw) => nameNorm.includes(kw));
 
   if (hasPositiveName && !hasNegativeName) {
     return {
       isValid: true,
       canonicalIndustry: canonicalDef.displayName,
-      normalizedCategory: canonicalDef.defaultCategoryLabel,
+      normalizedCategory: formatCategoryTitle(rawCategory, canonicalDef.defaultCategoryLabel),
       confidence: 'medium',
     };
   }
