@@ -9,19 +9,24 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const runLiveTest = url.searchParams.get('live') === 'true';
 
+  const isMock = process.env.RAPIDAPI_MOCK_MODE === 'true' || rawKey === 'mock' || rawKey === 'demo';
+
   if (!runLiveTest) {
     return NextResponse.json({
       provider: 'rapidapi',
       configured: isConfigured,
+      mockMode: isMock,
       apiKeyMasked: maskedKey,
       host: process.env.RAPIDAPI_HOST || 'maps-data.p.rapidapi.com',
       endpointPath: process.env.RAPIDAPI_ENDPOINT_PATH || '/searchmaps.php',
       enabled: process.env.RAPIDAPI_ENABLED !== 'false',
       maxLeadsPerRun: parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10),
       allowedCountries: process.env.ALLOWED_DISCOVERY_COUNTRIES || 'IN,US,CA',
-      message: isConfigured
-        ? 'RapidAPI Maps Data provider is configured. Pass ?live=true to run a live test query.'
-        : 'RAPIDAPI_KEY is not configured on the server.',
+      message: isMock
+        ? 'RapidAPI Maps Data provider is running in safe MOCK/DEMO mode (zero external credits consumed). Pass ?live=true to run a mock query.'
+        : isConfigured
+        ? 'RapidAPI Maps Data provider is configured with API key. Pass ?live=true to run a live test query.'
+        : 'RAPIDAPI_KEY is not configured on the server. Set RAPIDAPI_KEY in .env.local or set RAPIDAPI_MOCK_MODE=true for local testing.',
     });
   }
 

@@ -403,4 +403,28 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
     expect(result.businesses[0].name).toBe('Skyline Architects');
     expect(result.businesses[0].sources).toContain('rapidapi');
   });
+
+  // 15. Safe local mock/demo mode behavior when real key is unavailable
+  it('15. RAPIDAPI_MOCK_MODE produces clearly labeled demo leads without live network requests', async () => {
+    process.env.RAPIDAPI_KEY = '';
+    process.env.RAPIDAPI_MOCK_MODE = 'true';
+    RapidApiDiscoveryProvider.setSimulateResults(null);
+
+    const mockRes = await rapidApiDiscoveryProvider.discoverBusinesses({
+      industry: 'Bakeries',
+      state: 'Texas',
+      city: 'Austin',
+      country: 'USA',
+      limit: 5,
+    });
+
+    expect(mockRes.status).toBe('SUCCESS');
+    expect(mockRes.rawCount).toBe(5);
+    expect(mockRes.statusReason).toContain('Mock Demo Mode active');
+    expect(mockRes.businesses[0].name).toContain('[DEMO MOCK]');
+    expect(mockRes.businesses[0].confidence).toBe('DEMO_MOCK');
+    expect(mockRes.businesses[0].sources).toContain('rapidapi (mock demo)');
+    expect(mockRes.businesses[0].rawTags.isMockDemo).toBe(true);
+  });
 });
+

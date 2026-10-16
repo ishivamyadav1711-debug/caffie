@@ -90,8 +90,9 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
   public isConfigured(): boolean {
     const rawKey = process.env.RAPIDAPI_KEY;
     const key = rawKey ? rawKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+    const isMock = process.env.RAPIDAPI_MOCK_MODE === 'true';
     const isEnabled = process.env.RAPIDAPI_ENABLED !== 'false';
-    return Boolean(key && key.length > 0 && isEnabled);
+    return Boolean((isMock || (key && key.length > 0)) && isEnabled);
   }
 
   /**
@@ -314,6 +315,52 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         pagesRequested: 0,
         errors: ['RAPIDAPI_DISABLED'],
         durationMs: 0,
+      };
+    }
+
+    const isMockMode = process.env.RAPIDAPI_MOCK_MODE === 'true' || apiKey === 'mock' || apiKey === 'demo';
+
+    if (isMockMode) {
+      const maxLeadsAllowed = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+      const demoCount = Math.min(Math.max(params.limit || 5, 1), Math.min(5, maxLeadsAllowed));
+      const demoBusinesses: RawDiscoveredBusiness[] = Array.from({ length: demoCount }, (_, idx) => {
+        const id = idx + 1;
+        const name = `[DEMO MOCK] ${params.industry} Service ${id}`;
+        return {
+          source: 'rapidapi',
+          sources: ['rapidapi (mock demo)'],
+          sourceId: `rapidapi_demo_${params.industry.toLowerCase().replace(/[^a-z0-9]/g, '')}_${id}`,
+          confidence: 'DEMO_MOCK',
+          name,
+          businessName: name,
+          category: params.industry,
+          address: `${id * 123} Commercial Way, ${resolvedArea}, ${countryParam}`,
+          city: params.city,
+          state: params.state,
+          phone: countryParam.toLowerCase().includes('india') ? `+91 98200 ${10000 + id}` : `+1 512 555 ${1000 + id}`,
+          website: `https://example-demo-${id}.com`,
+          rating: 4.5,
+          userRatingCount: 25 * id,
+          businessStatus: 'OPERATIONAL',
+          rawTags: { isMockDemo: true, notice: 'Generated for localhost testing (RAPIDAPI_MOCK_MODE=true).' },
+          sourceEvidence: [{ source: 'rapidapi', sourceId: `rapidapi_demo_${id}` }],
+        };
+      });
+
+      return {
+        providerId: this.providerId,
+        providerName: this.name,
+        resolvedAreaName: resolvedArea,
+        rawCount: demoBusinesses.length,
+        businesses: demoBusinesses,
+        sourceComplete: true,
+        status: 'SUCCESS',
+        statusReason: `Discovered ${demoBusinesses.length} leads via RapidAPI Maps Data (Mock Demo Mode active - zero API credits used).`,
+        pagesRequested: 1,
+        queryUsed: cleanQuery,
+        endpointUsed: 'MOCK_DEMO_LOCAL',
+        errors: [],
+        durationMs: 60,
       };
     }
 
