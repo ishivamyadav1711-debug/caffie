@@ -1072,7 +1072,12 @@ export class LeadPilotOrchestrator {
         // Experimental High-Net-Worth Business Filter (₹70 Crore INR threshold)
         if (job.highNetWorthFilter) {
           const evidence = await financialEvidenceProvider.getFinancialEvidence(b.businessName, criteria.country);
-          const financialEval = evaluateFinancialEligibility(evidence, { businessName: b.businessName, country: criteria.country });
+          const filterMode = (criteria as any).financialFilterMode || 'STRICT_NET_WORTH';
+          const financialEval = evaluateFinancialEligibility(
+            evidence,
+            { businessName: b.businessName, country: criteria.country },
+            filterMode
+          );
           entity.financialEligibility = financialEval;
           entity.isHighNetWorthQualified = financialEval.isQualified;
 

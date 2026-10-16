@@ -370,6 +370,75 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
              )}
           </div>
 
+          {/* Section: Verified Financial Eligibility (₹70 Cr Experimental Filter) */}
+          {lead.financialEligibility && (
+            <div className="space-y-2 p-4 rounded-xl bg-violet-50/60 border border-violet-200 text-[12.5px]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-violet-900 uppercase tracking-wider">
+                    Financial Eligibility (₹70 Cr Threshold)
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    lead.financialEligibility.isQualified
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {lead.financialEligibility.eligibilityState}
+                  </span>
+                </div>
+                {lead.financialEligibility.isNetWorth && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    Net Worth Qualified
+                  </span>
+                )}
+              </div>
+
+              <div className="text-[12px] text-violet-950 font-medium">
+                {lead.financialEligibility.qualificationExplanation}
+              </div>
+
+              {lead.financialEligibility.evidence && (
+                <div className="mt-3 p-3 bg-white rounded-lg border border-violet-100 space-y-1.5 text-[11.5px]">
+                  <div className="grid grid-cols-2 gap-2 text-slate-700">
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase block">Metric Type</span>
+                      <span className="font-semibold text-slate-900">{lead.financialEligibility.evidence.metricType}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase block">Reported Amount</span>
+                      <span className="font-semibold text-slate-900">
+                        {lead.financialEligibility.evidence.currency} {lead.financialEligibility.evidence.rawAmount.toLocaleString()}
+                        {' '}(₹{(lead.financialEligibility.evidence.amountInInr / 10000000).toFixed(1)} Cr)
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase block">Filing / Period</span>
+                      <span className="text-slate-800">{lead.financialEligibility.evidence.reportingPeriod || 'Annual'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase block">Entity Match Confidence</span>
+                      <span className="text-slate-800">{Math.round(lead.financialEligibility.evidence.matchingConfidence * 100)}%</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500">Source: <strong className="text-slate-800">{lead.financialEligibility.evidence.sourceName}</strong></span>
+                    {lead.financialEligibility.evidence.sourceUrl && (
+                      <a
+                        href={lead.financialEligibility.evidence.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-teal-700 hover:underline font-medium"
+                      >
+                        View Official Filing ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Section: Website & Status */}
           <div className="space-y-3.5">
             <div className="flex items-center justify-between">

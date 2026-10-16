@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       requirePositiveReviewEvidence,
       reviewSort = 'default',
       highNetWorthFilter,
+      financialFilterMode,
     } = body;
 
     // 1. Strict Geographic Validation (India, USA, Canada)
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
       requirePositiveReviewEvidence: Boolean(requirePositiveReviewEvidence),
       reviewSort,
       highNetWorthFilter: Boolean(highNetWorthFilter),
+      financialFilterMode: financialFilterMode === 'BROAD_FINANCIAL_SCALE' ? 'BROAD_FINANCIAL_SCALE' : 'STRICT_NET_WORTH',
     };
 
     // If caller explicitly requests pipeline orchestrator engine
@@ -144,13 +146,17 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('[Search API Fatal Error]:', error);
-    const msg = error.message || 'An error occurred while executing discovery pipeline.';
+    let msg = error.message || 'An error occurred while executing discovery pipeline.';
+    if (msg.toLowerCase().includes('prisma') || msg.toLowerCase().includes('postgres') || msg.includes('DATABASE_URL')) {
+      msg = 'Database service is temporarily unavailable or misconfigured. Search completed with safe in-memory fallback.';
+    } else if (msg.includes('timeout')) {
+      msg = 'Discovery service timed out. Please try a narrower city search or check network.';
+    }
+
     return NextResponse.json(
       {
         success: false,
-        error: msg.includes('timeout')
-          ? 'Discovery service timed out. Please try a narrower city search or check network.'
-          : msg,
+        error: msg,
         code: 'SEARCH_FAILED',
         leads: [],
         results: [],

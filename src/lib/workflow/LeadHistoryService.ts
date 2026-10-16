@@ -76,42 +76,79 @@ export class LeadHistoryService {
 
   /**
    * Fetches the recently delivered place IDs for a given fingerprint from the database.
+   * If database query encounters an issue (e.g. malformed connection or network glitch),
+   * falls back safely to in-memory fingerprint history so lead search never crashes.
    */
   public async getRecentDeliveredPlaceIds(fingerprintKey: string, days: number = 7): Promise<Set<string>> {
-    const prisma = (await import('@/lib/prisma')).prisma;
-    const dateLimit = new Date();
-    dateLimit.setDate(dateLimit.getDate() - days);
+    try {
+      const prisma = (await import('@/lib/prisma')).prisma;
+      const dateLimit = new Date();
+      dateLimit.setDate(dateLimit.getDate() - days);
 
-    const history = await prisma.searchResultHistory.findMany({
-      where: {
-        fingerprintKey,
-        deliveredAt: {
-          gte: dateLimit,
+      const history = await prisma.searchResultHistory.findMany({
+        where: {
+          fingerprintKey,
+          deliveredAt: {
+            gte: dateLimit,
+          }
+        },
+        select: {
+          placeId: true
         }
-      },
-      select: {
-        placeId: true
-      }
-    });
+      });
 
-    return new Set(history.map((h: any) => h.placeId));
+      return new Set(history.map((h: any) => h.placeId));
+    } catch (err: any) {
+      console.warn('[LeadHistoryService] Safe fallback: could not query searchResultHistory from database:', err.message);
+      // Fallback to in-memory fingerprint history
+      const fp = this.fingerprints.get(fingerprintKey);
+      return new Set(fp ? fp.previouslyReturnedPlaceIds : []);
+    }
   }
 
   /**
    * Saves newly delivered candidates to the database for future recent-exclusion.
+   * Guarded with safe error handling so persistence errors do not crash caller.
    */
   public async recordDeliveryToDb(fingerprintKey: string, jobId: string, deliveredLeads: { placeId: string, name: string }[]) {
     if (deliveredLeads.length === 0) return;
-    const prisma = (await import('@/lib/prisma')).prisma;
-    
-    await prisma.searchResultHistory.createMany({
-      data: deliveredLeads.map(lead => ({
-        fingerprintKey,
-        jobId,
-        placeId: lead.placeId,
-        businessName: lead.name,
-      }))
-    });
+
+    // Always update in-memory fingerprint history so fallback has the data
+    const existingFp = this.fingerprints.get(fingerprintKey);
+    if (existingFp) {
+      for (const lead of deliveredLeads) {
+        if (!existingFp.previouslyReturnedPlaceIds.includes(lead.placeId)) {
+          existingFp.previouslyReturnedPlaceIds.push(lead.placeId);
+        }
+      }
+    } else {
+      this.fingerprints.set(fingerprintKey, {
+        fingerprint: fingerprintKey,
+        country: 'India',
+        state: 'Unknown',
+        industry: 'Unknown',
+        contactFilter: 'All Contacts',
+        websiteFilter: 'Any Website',
+        previouslyReturnedPlaceIds: deliveredLeads.map(l => l.placeId),
+        timesSearched: 1,
+        lastDeliveryAt: new Date().toISOString(),
+      });
+    }
+
+    try {
+      const prisma = (await import('@/lib/prisma')).prisma;
+      
+      await prisma.searchResultHistory.createMany({
+        data: deliveredLeads.map(lead => ({
+          fingerprintKey,
+          jobId,
+          placeId: lead.placeId,
+          businessName: lead.name,
+        }))
+      });
+    } catch (err: any) {
+      console.warn('[LeadHistoryService] Safe fallback: could not persist searchResultHistory to database:', err.message);
+    }
   }
 
   public getFingerprint(fingerprintKey: string): SearchFingerprintRecord | undefined {

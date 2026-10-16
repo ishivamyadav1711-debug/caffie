@@ -122,7 +122,14 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
         },
       ];
 
-      const res = evaluateFinancialEligibility(mockRevenueEvidence, { businessName: 'Omni Retail Inc' });
+      // In STRICT_NET_WORTH mode (default): Revenue does NOT qualify as Net Worth
+      const strictRes = evaluateFinancialEligibility(mockRevenueEvidence, { businessName: 'Omni Retail Inc' }, 'STRICT_NET_WORTH');
+      expect(strictRes.eligibilityState).toBe('NOT_QUALIFIED');
+      expect(strictRes.isQualified).toBe(false);
+      expect(strictRes.qualificationExplanation).toContain('Revenue / Turnover, not Net Worth');
+
+      // In BROAD_FINANCIAL_SCALE mode: Revenue qualifies with transparent labeling
+      const res = evaluateFinancialEligibility(mockRevenueEvidence, { businessName: 'Omni Retail Inc' }, 'BROAD_FINANCIAL_SCALE');
       expect(res.eligibilityState).toBe('QUALIFIED');
       expect(res.isQualified).toBe(true);
       expect(res.isNetWorth).toBe(false); // MUST be false!
@@ -149,7 +156,13 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
         },
       ];
 
-      const res = evaluateFinancialEligibility(mockValuationEvidence, { businessName: 'Maple Tech Corp' });
+      // In STRICT_NET_WORTH mode (default): Valuation does NOT qualify as Net Worth
+      const strictVal = evaluateFinancialEligibility(mockValuationEvidence, { businessName: 'Maple Tech Corp' }, 'STRICT_NET_WORTH');
+      expect(strictVal.eligibilityState).toBe('NOT_QUALIFIED');
+      expect(strictVal.isQualified).toBe(false);
+
+      // In BROAD_FINANCIAL_SCALE mode: Valuation qualifies with transparent labeling
+      const res = evaluateFinancialEligibility(mockValuationEvidence, { businessName: 'Maple Tech Corp' }, 'BROAD_FINANCIAL_SCALE');
       expect(res.eligibilityState).toBe('QUALIFIED');
       expect(res.isQualified).toBe(true);
       expect(res.isNetWorth).toBe(false);

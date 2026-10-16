@@ -149,6 +149,7 @@ export default function DashboardClient() {
           requirePositiveReviewEvidence: criteria.requirePositiveReviewEvidence,
           reviewSort: criteria.reviewSort,
           highNetWorthFilter: criteria.highNetWorthFilter,
+          financialFilterMode: criteria.financialFilterMode,
           sync: true,
         }),
       });

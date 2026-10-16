@@ -239,6 +239,7 @@ export interface SearchRequestPayload {
   requirePositiveReviewEvidence?: boolean;
   reviewSort?: ReviewSortOption;
   highNetWorthFilter?: boolean;
+  financialFilterMode?: 'STRICT_NET_WORTH' | 'BROAD_FINANCIAL_SCALE';
 }
 
 export type LeadStatus = 'New' | 'In Review' | 'Contacted' | 'Qualified' | 'Unresponsive';
