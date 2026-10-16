@@ -33,7 +33,8 @@ export class ProviderHealthService {
     const rawRapidApiKey = process.env.RAPIDAPI_KEY;
     const rapidApiKey = rawRapidApiKey ? rawRapidApiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
     const isRapidApiEnabled = process.env.RAPIDAPI_ENABLED !== 'false';
-    const isRapidApiConfigured = Boolean(rapidApiKey && rapidApiKey.length > 0);
+    const isMock = process.env.RAPIDAPI_MOCK_MODE === 'true' || rapidApiKey === 'mock' || rapidApiKey === 'demo';
+    const isRapidApiConfigured = Boolean(isMock || (rapidApiKey && rapidApiKey.length > 0));
     const isRapidApiCircuitOpen = rapidApiCircuitBreaker.getState() === 'OPEN';
 
     let rapidApiHealth: ProviderHealth;
@@ -67,6 +68,7 @@ export class ProviderHealthService {
         enabled: true,
         configured: true,
         healthy: true,
+        message: isMock ? 'RapidAPI Maps Data is operating in safe local MOCK/DEMO mode.' : undefined,
       };
     }
 

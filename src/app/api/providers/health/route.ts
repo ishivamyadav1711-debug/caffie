@@ -59,6 +59,7 @@ export async function GET() {
     rapidapi: {
       configured: rapidApiConfigured,
       reachable: isRapidApiReachable,
+      mockMode: process.env.RAPIDAPI_MOCK_MODE === 'true' || process.env.RAPIDAPI_KEY === 'mock',
       status: rapidApiStatus,
       lastCheckedAt: new Date().toISOString(),
       error: rapidApiErrorMessage,
