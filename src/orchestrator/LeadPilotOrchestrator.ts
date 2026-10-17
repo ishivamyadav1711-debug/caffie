@@ -709,7 +709,7 @@ export class LeadPilotOrchestrator {
           : b.source || 'google_places';
 
         // --- Section 6 & 7: Google Data First & Contact Filter Fast Path ---
-        const normPhone = normalizePhone(b.phone);
+        const normPhone = normalizePhone(b.phone, criteria.country);
         const normEmail = b.email && b.email.includes('@') ? b.email.trim().toLowerCase() : undefined;
         const normContact = normalizeContactFilter(criteria.contactFilter);
 

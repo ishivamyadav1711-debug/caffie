@@ -48,18 +48,7 @@ export default function DashboardClient() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [auditTargetLead, setAuditTargetLead] = useState<Lead | null>(null);
 
-  // Load real persisted leads on initial mount
-  React.useEffect(() => {
-    fetch('/api/leads?limit=100')
-      .then((res) => parseApiResponse(res, '/api/leads?limit=100'))
-      .then((data) => {
-        if (data.success && Array.isArray(data.leads) && data.leads.length > 0) {
-          setLeads(data.leads);
-          setHasSearched(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
+
 
 
   // Modals & Panels state
@@ -120,12 +109,31 @@ export default function DashboardClient() {
 
   const handleLeadSearchStart = () => {
     setIsSearching(true);
+    setHasSearched(true);
+    setLeads([]);
+    setSearchSummary(null);
+    setSearchStatus(null);
+    setPipelineStats(null);
+    setProviderStats(null);
+    setPipelineBreakdown(null);
+    setRotationStats(null);
+    setRejectedCandidates([]);
+    setRejectionReasons(null);
+    setStatusReason(null);
     setSearchErrorMessage(null);
     setLiveProgressLog([]);
   };
 
   const handleLeadSearchSubmit = async (criteria: LeadFilterCriteria) => {
     setIsSearching(true);
+    setHasSearched(true);
+    setLeads([]);
+    setSearchSummary(null);
+    setSearchStatus(null);
+    setPipelineStats(null);
+    setProviderStats(null);
+    setPipelineBreakdown(null);
+    setStatusReason(null);
     setSearchErrorMessage(null);
     setLiveProgressLog([]);
 
@@ -184,11 +192,12 @@ export default function DashboardClient() {
         setRejectionReasons(initialData.rejectionReasons || null);
         setStatusReason(initialData.statusReason || null);
         setSearchErrorMessage(null);
+        handleScrollToLeads();
 
         if (initialData.leads.length > 0) {
           const isPartial = initialData.searchStatus === 'PARTIAL';
           const deliveredCount = initialData.leads.length;
-          const requestedCount = criteria.limit || 50;
+          const requestedCount = criteria.limit || 5;
           const title = isPartial
             ? `Discovery Complete (${deliveredCount}/${requestedCount} Leads)`
             : `Discovery Complete (${deliveredCount} Qualified Leads)`;

@@ -20,7 +20,7 @@ export class DataNormalizationActor extends BaseActor<BusinessWithScore[], LeadE
 
     const entities: LeadEntity[] = businesses.map((b) => {
       const canonicalWeb = canonicalizeUrl(b.websiteUrl);
-      const cleanPhone = normalizePhone(b.phone);
+      const cleanPhone = normalizePhone(b.phone, (b as any).country);
       const cleanEmail = normalizeEmail(b.email);
 
       const leadId = `lead_${b.source.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${b.sourceId}`;

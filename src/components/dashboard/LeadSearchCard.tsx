@@ -85,8 +85,8 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   const [contact, setContact] = useState<ContactFilter>(initialCriteria?.contact || 'All Contacts');
   const [website, setWebsite] = useState<WebsiteFilter>(initialCriteria?.website || 'All Websites');
 
-  // 6. RESULTS LIMIT: Dropdown (Default 10, Selectable: 5, 10, 15, 20)
-  const [limit, setLimit] = useState<NumberOfLeads>(initialCriteria?.limit || 10);
+  // 6. RESULTS LIMIT: Dropdown (Default 5, Selectable: 5, 10, 15, 20)
+  const [limit, setLimit] = useState<NumberOfLeads>(initialCriteria?.limit || 5);
 
   // 7. REVIEW INTELLIGENCE FILTERS (Sections 9, 10, 11)
   const [showReviewFilters, setShowReviewFilters] = useState(false);
@@ -213,14 +213,12 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
 
   const limitOptions: NumberOfLeads[] = [5, 10, 15, 20];
 
-  const isSearching = jobState === 'running' || isSearchingExternal;
+  const isSearching = isSearchingExternal;
 
   const handleStartSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (isSearching) return;
 
-    setJobState('running');
-    setCurrentStepIndex(0);
     if (onSearchStart) {
       onSearchStart();
     }
@@ -246,19 +244,9 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
       financialFilterMode: 'STRICT_NET_WORTH',
     };
 
-    setTimeout(() => setCurrentStepIndex(1), 500);
-    setTimeout(() => setCurrentStepIndex(2), 1100);
-    setTimeout(() => setCurrentStepIndex(3), 1800);
-    setTimeout(() => setCurrentStepIndex(4), 2500);
-    setTimeout(() => {
-      setJobState('completed');
-      if (onSearchSubmit) {
-        onSearchSubmit(criteria);
-      }
-      if (onViewLeads) {
-        onViewLeads();
-      }
-    }, 2900);
+    if (onSearchSubmit) {
+      onSearchSubmit(criteria);
+    }
   };
 
   return (
