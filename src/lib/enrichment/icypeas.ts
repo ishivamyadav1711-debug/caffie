@@ -1,29 +1,56 @@
 import { normalizePhone } from '@/utils/phoneUtils';
+import { ProviderPhoneResult } from './types';
 
-export async function icypeasFindPhone(input: { first_name: string; last_name?: string; company_domain?: string; company_name?: string; company_country?: string }) {
-  console.log('[Enrichment] Calling Icypeas for:', input.first_name, input.company_name);
+/**
+ * Find mobile/direct phone number via Icypeas API
+ */
+export async function icypeasFindPhone(
+  domain?: string | null,
+  firstName?: string | null,
+  lastName?: string | null,
+  country?: string | null
+): Promise<ProviderPhoneResult | null> {
+  console.log('[Icypeas] Phone Search for:', { firstName, lastName, domain, country });
   const apiKey = process.env.ICYPEAS_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn('[Icypeas] ICYPEAS_API_KEY not configured in environment');
+    return null;
+  }
+
   try {
     const res = await fetch('https://app.icypeas.com/api/phone/find', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'X-API-KEY': apiKey,
+      },
       body: JSON.stringify({
-        first_name: input.first_name,
-        last_name: input.last_name || '',
-        domain: input.company_domain,
-        company: input.company_name,
-        country: input.company_country,
+        first_name: firstName || '',
+        last_name: lastName || '',
+        domain: domain || '',
+        country: country || 'US',
       }),
     });
-    if (!res.ok) return null;
+
+    if (!res.ok) {
+      console.warn(`[Icypeas] Phone search HTTP ${res.status} for ${firstName} @ ${domain}`);
+      return null;
+    }
+
     const data = await res.json();
-    const rawPhone = data.phone || data.data?.phone;
-    const phone = normalizePhone(rawPhone, input.company_country);
+    const rawPhone = data.phone || data.data?.phone || data.mobile || data.data?.mobile;
+    const phone = normalizePhone(rawPhone, country || undefined);
     if (!phone) return null;
-    return { phone, provider: 'icypeas' };
+
+    return {
+      phone,
+      provider: 'icypeas',
+      type: 'MOBILE',
+      confidence: 0.85,
+    };
   } catch (err) {
-    console.warn('[Icypeas] Error:', err);
+    console.warn('[Icypeas] Phone search exception:', err);
     return null;
   }
 }

@@ -40,14 +40,12 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
         company_name: 'Acme Technologies',
         company_domain: null,
         first_name: 'John',
-        fields: ['workEmail', 'personalEmail', 'phone'],
+        fields: ['workEmail'],
       });
 
       expect(result.workEmail?.status).toBe('FAILED');
       expect(result.workEmail?.reason).toBe('Domain required');
       expect(result.totalCost).toBe(0);
-      expect(result.personalEmail?.status).toBe('ROUTED');
-      expect(result.phone?.status).toBe('ROUTED');
     });
   });
 

@@ -10,6 +10,8 @@ import {
 } from './types';
 import { prospeoFindPersonEmail, prospeoFindDomainEmail } from './prospeo';
 import { tombaFindPersonEmail, tombaFindDomainEmail } from './tomba';
+import { icypeasFindPhone } from './icypeas';
+import { leadmagicFindPersonalEmail } from './leadmagic';
 
 // In-memory Layer 0 cache
 const enrichmentCache = new Map<string, EnrichmentOutput>();
@@ -35,10 +37,7 @@ function cleanDomain(val?: string | null): string | null {
 
 /**
  * LeadPilot Enrichment Engine
- * Phase 2: Real Work Email Providers (Person Search vs Domain Search)
- *
- * Mode A (Person Search): When first_name is provided -> Person search (Prospeo -> Tomba)
- * Mode B (Domain Search): When first_name is missing -> Domain search (Prospeo -> Tomba)
+ * Phase 3: Work Email (Prospeo + Tomba), Personal Email (LeadMagic), Phone (Icypeas)
  */
 export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentOutput> {
   // 1. Layer 0 Input Normalization
@@ -101,10 +100,10 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
   let phone: FieldEnrichmentResult | null = null;
   let totalCost = 0;
 
-  // --- WORK EMAIL EXECUTION ---
+  // --- WORK EMAIL EXECUTION (Wave 1 & Wave 2: Prospeo -> Tomba) ---
   if (activeFields.includes('workEmail')) {
     if (!companyDomain) {
-      // Rule 2: If company_domain is missing, skip real API calls and return status "FAILED" with reason "Domain required"
+      // Domain required for real API work email search
       plannedWaterfall.workEmail = ['skipped_no_domain'];
       workEmail = {
         value: null,
@@ -118,7 +117,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
       // Mode A (Person Search): first_name is provided
       plannedWaterfall.workEmail = ['prospeo', 'tomba'];
 
-      // Step 1: Try Prospeo person search first
+      // Step 1: Try Prospeo person search first ($0.01)
       totalCost += 0.01;
       const prospeoRes = await prospeoFindPersonEmail(companyDomain, firstName, lastName);
 
@@ -131,7 +130,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
           status: 'FOUND',
         };
       } else {
-        // Step 2: Try Tomba person search if Prospeo fails
+        // Step 2: Try Tomba person search if Prospeo fails ($0.0078)
         totalCost += 0.0078;
         const tombaRes = await tombaFindPersonEmail(companyDomain, firstName, lastName);
 
@@ -159,7 +158,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
       // Mode B (Domain Search): first_name is missing
       plannedWaterfall.workEmail = ['prospeo_domain_search', 'tomba_domain_search'];
 
-      // Step 1: Try Prospeo domain search first
+      // Step 1: Try Prospeo domain search first ($0.01)
       totalCost += 0.01;
       const prospeoRes = await prospeoFindDomainEmail(companyDomain);
 
@@ -172,7 +171,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
           status: 'FOUND',
         };
       } else {
-        // Step 2: Try Tomba domain search if Prospeo fails
+        // Step 2: Try Tomba domain search if Prospeo fails ($0.0078)
         totalCost += 0.0078;
         const tombaRes = await tombaFindDomainEmail(companyDomain);
 
@@ -199,39 +198,81 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     }
   }
 
-  // --- PERSONAL EMAIL MOCK (Rule 1: Leave personalEmail and phone routing as mock ROUTED) ---
+  // --- PERSONAL EMAIL EXECUTION (Phase 3: LeadMagic, cost +$0.03) ---
   if (activeFields.includes('personalEmail')) {
     if (firstName) {
-      plannedWaterfall.personalEmail = ['leadmagic_personal', 'bettercontact_personal'];
-      personalEmail = {
-        value: null,
-        provider: null,
-        confidence: null,
-        status: 'ROUTED',
-        reason: `Routed to Personal Email waterfall for ${firstName} ${lastName || ''}`.trim(),
-      };
+      plannedWaterfall.personalEmail = ['leadmagic'];
+      totalCost += 0.03;
+
+      const lmRes = await leadmagicFindPersonalEmail(companyDomain, firstName, lastName);
+
+      if (lmRes?.email) {
+        personalEmail = {
+          value: lmRes.email,
+          provider: 'leadmagic',
+          confidence: lmRes.confidence || 0.85,
+          type: 'PERSONAL',
+          status: 'FOUND',
+        };
+      } else {
+        personalEmail = {
+          value: null,
+          provider: null,
+          confidence: null,
+          type: 'PERSONAL',
+          status: 'NOT_FOUND',
+          reason: 'No personal email found',
+        };
+      }
     } else {
       skippedFields.push({ field: 'personalEmail', reason: 'Personal email enrichment requires first_name' });
       personalEmail = {
         value: null,
         provider: null,
         confidence: null,
+        type: 'PERSONAL',
         status: 'SKIPPED',
         reason: 'Requires first_name',
       };
     }
   }
 
-  // --- PHONE MOCK (Rule 1: Leave personalEmail and phone routing as mock ROUTED) ---
+  // --- PHONE EXECUTION (Phase 3: Icypeas, cost +$0.019) ---
   if (activeFields.includes('phone')) {
-    plannedWaterfall.phone = ['icypeas', 'twilio_lookup'];
-    phone = {
-      value: null,
-      provider: null,
-      confidence: null,
-      status: 'ROUTED',
-      reason: `Routed to Phone waterfall for ${companyName || companyDomain}`,
-    };
+    if (companyDomain) {
+      plannedWaterfall.phone = ['icypeas'];
+      totalCost += 0.019;
+
+      const icyRes = await icypeasFindPhone(companyDomain, firstName, lastName, companyCountry);
+
+      if (icyRes?.phone) {
+        phone = {
+          value: icyRes.phone,
+          provider: 'icypeas',
+          confidence: icyRes.confidence || 0.85,
+          type: 'MOBILE',
+          status: 'FOUND',
+        };
+      } else {
+        phone = {
+          value: null,
+          provider: null,
+          confidence: null,
+          type: 'MOBILE',
+          status: 'NOT_FOUND',
+          reason: 'No direct phone found',
+        };
+      }
+    } else {
+      phone = {
+        value: null,
+        provider: null,
+        confidence: null,
+        status: 'FAILED',
+        type: null,
+        reason: 'Domain required',
+      };
+    }
   }
 
   // 7. Layer 0 Routing Metadata & Output Assembly
@@ -261,3 +302,5 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
 export * from './types';
 export * from './prospeo';
 export * from './tomba';
+export * from './icypeas';
+export * from './leadmagic';

@@ -21,6 +21,7 @@ import {
   ArrowRight,
   ShieldCheck,
   RefreshCw,
+  AtSign,
 } from 'lucide-react';
 import { EnrichmentOutput, EnrichmentField } from '@/lib/enrichment/types';
 
@@ -30,7 +31,11 @@ export const EnrichContactForm: React.FC = () => {
   const [companyName, setCompanyName] = useState('');
   const [companyDomain, setCompanyDomain] = useState('');
   const [companyCountry, setCompanyCountry] = useState<'US' | 'IN' | 'CA'>('US');
-  const [selectedFields, setSelectedFields] = useState<EnrichmentField[]>(['workEmail', 'phone']);
+  const [selectedFields, setSelectedFields] = useState<EnrichmentField[]>([
+    'workEmail',
+    'personalEmail',
+    'phone',
+  ]);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +55,7 @@ export const EnrichContactForm: React.FC = () => {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handlePreset = (type: 'person' | 'domain' | 'no-domain') => {
+  const handlePreset = (type: 'person' | 'domain' | 'phone' | 'personalEmail' | 'no-domain') => {
     setError(null);
     setResult(null);
     if (type === 'person') {
@@ -59,7 +64,7 @@ export const EnrichContactForm: React.FC = () => {
       setCompanyName('Stripe');
       setCompanyDomain('stripe.com');
       setCompanyCountry('US');
-      setSelectedFields(['workEmail', 'phone']);
+      setSelectedFields(['workEmail', 'personalEmail', 'phone']);
     } else if (type === 'domain') {
       setFirstName('');
       setLastName('');
@@ -67,13 +72,27 @@ export const EnrichContactForm: React.FC = () => {
       setCompanyDomain('stripe.com');
       setCompanyCountry('US');
       setSelectedFields(['workEmail', 'phone']);
+    } else if (type === 'phone') {
+      setFirstName('Patrick');
+      setLastName('Collison');
+      setCompanyName('Stripe');
+      setCompanyDomain('stripe.com');
+      setCompanyCountry('US');
+      setSelectedFields(['phone']);
+    } else if (type === 'personalEmail') {
+      setFirstName('Patrick');
+      setLastName('Collison');
+      setCompanyName('Stripe');
+      setCompanyDomain('stripe.com');
+      setCompanyCountry('US');
+      setSelectedFields(['personalEmail']);
     } else if (type === 'no-domain') {
       setFirstName('John');
       setLastName('Doe');
       setCompanyName('Acme Technologies');
       setCompanyDomain('');
       setCompanyCountry('US');
-      setSelectedFields(['workEmail', 'phone']);
+      setSelectedFields(['workEmail', 'personalEmail', 'phone']);
     }
   };
 
@@ -89,7 +108,7 @@ export const EnrichContactForm: React.FC = () => {
     }
 
     if (selectedFields.length === 0) {
-      setError('Please select at least one field to enrich (Work Email or Phone).');
+      setError('Please select at least one field to enrich (Work Email, Personal Email, or Phone).');
       return;
     }
 
@@ -144,11 +163,11 @@ export const EnrichContactForm: React.FC = () => {
                 <h2 className="text-[16px] font-bold text-[#0F172A] tracking-tight flex items-center gap-2">
                   Contact Enrichment Engine
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-                    Phase 2 Active
+                    Phase 3 Active
                   </span>
                 </h2>
                 <p className="text-[12.5px] text-[#64748B] mt-0.5">
-                  Overloaded Layer 0 Waterfall: Person search vs Domain search with Prospeo & Tomba
+                  Multi-provider waterfall: Work Email (Prospeo/Tomba), Personal Email (LeadMagic), Phone (Icypeas)
                 </p>
               </div>
             </div>
@@ -161,7 +180,7 @@ export const EnrichContactForm: React.FC = () => {
                 onClick={() => handlePreset('person')}
                 className="text-[11.5px] font-medium px-2.5 py-1 rounded-lg bg-[#F1F5F9] text-[#334155] hover:bg-[#E2E8F0] transition-colors cursor-pointer"
               >
-                Person Search
+                All Fields
               </button>
               <button
                 type="button"
@@ -172,10 +191,24 @@ export const EnrichContactForm: React.FC = () => {
               </button>
               <button
                 type="button"
+                onClick={() => handlePreset('phone')}
+                className="text-[11.5px] font-medium px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 transition-colors cursor-pointer border border-teal-200/50"
+              >
+                Phone Search
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset('personalEmail')}
+                className="text-[11.5px] font-medium px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors cursor-pointer border border-indigo-200/50"
+              >
+                Personal Email
+              </button>
+              <button
+                type="button"
                 onClick={() => handlePreset('no-domain')}
                 className="text-[11.5px] font-medium px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer border border-rose-200/50"
               >
-                Missing Domain (Fail Test)
+                Missing Domain (Fail)
               </button>
             </div>
           </div>
@@ -203,8 +236,8 @@ export const EnrichContactForm: React.FC = () => {
               <span className="text-slate-500 hidden sm:inline">•</span>
               <span className="text-slate-600 hidden sm:inline">
                 {isPersonSearch
-                  ? 'Finding specific person work email via Prospeo → Tomba waterfall.'
-                  : 'Finding generic company email (info@, contact@) via Prospeo → Tomba.'}
+                  ? 'Person identified: Specific work email via Prospeo/Tomba, personal email via LeadMagic, phone via Icypeas.'
+                  : 'Company-level only: Generic company email via Prospeo/Tomba, company phone via Icypeas.'}
               </span>
             </div>
             <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-white/80 border border-slate-200/60 shrink-0">
@@ -320,9 +353,18 @@ export const EnrichContactForm: React.FC = () => {
               <label className="flex items-center gap-2 text-[13px] text-[#334155] cursor-pointer select-none">
                 <input
                   type="checkbox"
+                  checked={selectedFields.includes('personalEmail')}
+                  onChange={() => toggleField('personalEmail')}
+                  className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300 cursor-pointer"
+                />
+                <span>Personal Email</span>
+              </label>
+              <label className="flex items-center gap-2 text-[13px] text-[#334155] cursor-pointer select-none">
+                <input
+                  type="checkbox"
                   checked={selectedFields.includes('phone')}
                   onChange={() => toggleField('phone')}
-                  className="h-4 w-4 rounded text-teal-600 focus:ring-teal-500 border-gray-300 cursor-pointer"
+                  className="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 border-gray-300 cursor-pointer"
                 />
                 <span>Phone</span>
               </label>
@@ -340,7 +382,7 @@ export const EnrichContactForm: React.FC = () => {
           {/* Submit Action */}
           <div className="flex items-center justify-between pt-2 border-t border-[#F1F5F9]">
             <p className="text-[11.5px] text-[#94A3B8]">
-              Prospeo: $0.01 / lookup • Tomba: $0.0078 / lookup • Stops on first provider success
+              Prospeo: $0.01 • Tomba: $0.0078 • LeadMagic: $0.03 • Icypeas: $0.019
             </p>
 
             <button
@@ -374,22 +416,8 @@ export const EnrichContactForm: React.FC = () => {
           {/* Result Header */}
           <div className="p-5 border-b border-[#F1F5F9] bg-gradient-to-r from-slate-50/60 to-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <div
-                className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  result.workEmail?.status === 'FOUND'
-                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'
-                    : result.workEmail?.status === 'FAILED'
-                    ? 'bg-rose-50 text-rose-600 border border-rose-200/60'
-                    : 'bg-amber-50 text-amber-600 border border-amber-200/60'
-                }`}
-              >
-                {result.workEmail?.status === 'FOUND' ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : result.workEmail?.status === 'FAILED' ? (
-                  <XCircle className="h-4 w-4" />
-                ) : (
-                  <AlertCircle className="h-4 w-4" />
-                )}
+              <div className="h-8 w-8 rounded-lg bg-teal-50 text-teal-600 border border-teal-200/60 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="h-4 w-4" />
               </div>
               <div>
                 <h3 className="text-[14px] font-bold text-[#0F172A]">Enrichment Results</h3>
@@ -430,8 +458,8 @@ export const EnrichContactForm: React.FC = () => {
             </div>
           </div>
 
-          {/* Cards Grid: Email & Phone */}
-          <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Cards Grid: Work Email, Personal Email & Phone */}
+          <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* 1. Work Email Card */}
             <div className="p-4 rounded-xl border border-[#E2E8F0] bg-slate-50/40 hover:bg-white transition-all space-y-3">
               <div className="flex items-center justify-between">
@@ -451,27 +479,29 @@ export const EnrichContactForm: React.FC = () => {
                         ? 'bg-emerald-100 text-emerald-800'
                         : result.workEmail?.status === 'FAILED'
                         ? 'bg-rose-100 text-rose-800'
+                        : result.workEmail?.status === 'SKIPPED'
+                        ? 'bg-slate-100 text-slate-700'
                         : 'bg-amber-100 text-amber-800'
                     }`}
                   >
-                    {result.workEmail?.status || 'SKIPPED'}
+                    {result.workEmail?.status || 'NOT_REQUESTED'}
                   </span>
                 </div>
               </div>
 
               {/* Value Box */}
-              <div className="p-3 rounded-lg bg-white border border-[#CBD5E1]/70 flex items-center justify-between gap-2">
-                <span className="text-[14px] font-medium text-[#0F172A] truncate">
+              <div className="p-3 rounded-lg bg-white border border-[#CBD5E1]/70 flex items-center justify-between gap-2 min-h-[48px]">
+                <span className="text-[13.5px] font-medium text-[#0F172A] truncate">
                   {result.workEmail?.value || 'Not Found'}
                 </span>
                 {result.workEmail?.value && (
                   <button
                     type="button"
-                    onClick={() => handleCopy(result.workEmail!.value!, 'email')}
+                    onClick={() => handleCopy(result.workEmail!.value!, 'workEmail')}
                     className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                    title="Copy Email"
+                    title="Copy Work Email"
                   >
-                    {copiedKey === 'email' ? (
+                    {copiedKey === 'workEmail' ? (
                       <Check className="h-3.5 w-3.5 text-teal-600" />
                     ) : (
                       <Copy className="h-3.5 w-3.5" />
@@ -491,54 +521,63 @@ export const EnrichContactForm: React.FC = () => {
                 </div>
                 {typeof result.workEmail?.confidence === 'number' && (
                   <div>
-                    <span>Confidence: </span>
+                    <span>Score: </span>
                     <span className="font-semibold text-emerald-600">
                       {Math.round(result.workEmail.confidence * 100)}%
                     </span>
                   </div>
                 )}
                 {result.workEmail?.reason && (
-                  <span className="text-slate-500 italic truncate max-w-[180px]">
+                  <span className="text-slate-500 italic truncate max-w-[130px]" title={result.workEmail.reason}>
                     {result.workEmail.reason}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* 2. Phone Card */}
+            {/* 2. Personal Email Card (LeadMagic) */}
             <div className="p-4 rounded-xl border border-[#E2E8F0] bg-slate-50/40 hover:bg-white transition-all space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[12.5px] font-semibold text-[#334155]">
-                  <Phone className="h-4 w-4 text-teal-600" />
-                  <span>Phone Number</span>
+                  <AtSign className="h-4 w-4 text-indigo-600" />
+                  <span>Personal Email</span>
                 </div>
-                <span
-                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                    result.phone?.status === 'FOUND'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : result.phone?.status === 'ROUTED'
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  {result.phone?.status || 'SKIPPED'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {result.personalEmail?.type && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/70">
+                      {result.personalEmail.type}
+                    </span>
+                  )}
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      result.personalEmail?.status === 'FOUND'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : result.personalEmail?.status === 'SKIPPED'
+                        ? 'bg-slate-100 text-slate-700'
+                        : result.personalEmail?.status === 'FAILED'
+                        ? 'bg-rose-100 text-rose-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {result.personalEmail?.status || 'NOT_REQUESTED'}
+                  </span>
+                </div>
               </div>
 
               {/* Value Box */}
-              <div className="p-3 rounded-lg bg-white border border-[#CBD5E1]/70 flex items-center justify-between gap-2">
-                <span className="text-[14px] font-medium text-[#0F172A] truncate">
-                  {result.phone?.value || 'Not Found'}
+              <div className="p-3 rounded-lg bg-white border border-[#CBD5E1]/70 flex items-center justify-between gap-2 min-h-[48px]">
+                <span className="text-[13.5px] font-medium text-[#0F172A] truncate">
+                  {result.personalEmail?.value || 'Not Found'}
                 </span>
-                {result.phone?.value && (
+                {result.personalEmail?.value && (
                   <button
                     type="button"
-                    onClick={() => handleCopy(result.phone!.value!, 'phone')}
+                    onClick={() => handleCopy(result.personalEmail!.value!, 'personalEmail')}
                     className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                    title="Copy Phone"
+                    title="Copy Personal Email"
                   >
-                    {copiedKey === 'phone' ? (
-                      <Check className="h-3.5 w-3.5 text-teal-600" />
+                    {copiedKey === 'personalEmail' ? (
+                      <Check className="h-3.5 w-3.5 text-indigo-600" />
                     ) : (
                       <Copy className="h-3.5 w-3.5" />
                     )}
@@ -552,11 +591,78 @@ export const EnrichContactForm: React.FC = () => {
                   <Cpu className="h-3.5 w-3.5 text-slate-400" />
                   <span>Provider:</span>
                   <span className="font-semibold text-slate-800 uppercase">
-                    {result.phone?.provider || 'icypeas / twilio'}
+                    {result.personalEmail?.provider || 'None'}
+                  </span>
+                </div>
+                {result.personalEmail?.reason && (
+                  <span className="text-slate-500 italic truncate max-w-[140px]" title={result.personalEmail.reason}>
+                    {result.personalEmail.reason}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Phone Card (Icypeas) */}
+            <div className="p-4 rounded-xl border border-[#E2E8F0] bg-slate-50/40 hover:bg-white transition-all space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[12.5px] font-semibold text-[#334155]">
+                  <Phone className="h-4 w-4 text-emerald-600" />
+                  <span>Phone Number</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {result.phone?.type && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/70">
+                      {result.phone.type}
+                    </span>
+                  )}
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      result.phone?.status === 'FOUND'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : result.phone?.status === 'FAILED'
+                        ? 'bg-rose-100 text-rose-800'
+                        : result.phone?.status === 'SKIPPED'
+                        ? 'bg-slate-100 text-slate-700'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {result.phone?.status || 'NOT_REQUESTED'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Value Box */}
+              <div className="p-3 rounded-lg bg-white border border-[#CBD5E1]/70 flex items-center justify-between gap-2 min-h-[48px]">
+                <span className="text-[13.5px] font-medium text-[#0F172A] truncate">
+                  {result.phone?.value || 'Not Found'}
+                </span>
+                {result.phone?.value && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(result.phone!.value!, 'phone')}
+                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Copy Phone"
+                  >
+                    {copiedKey === 'phone' ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* Metadata details */}
+              <div className="flex items-center justify-between text-[11px] text-[#64748B] pt-1">
+                <div className="flex items-center gap-1.5">
+                  <Cpu className="h-3.5 w-3.5 text-slate-400" />
+                  <span>Provider:</span>
+                  <span className="font-semibold text-slate-800 uppercase">
+                    {result.phone?.provider || 'None'}
                   </span>
                 </div>
                 {result.phone?.reason && (
-                  <span className="text-slate-500 italic truncate max-w-[200px]">
+                  <span className="text-slate-500 italic truncate max-w-[140px]" title={result.phone.reason}>
                     {result.phone.reason}
                   </span>
                 )}
@@ -571,11 +677,17 @@ export const EnrichContactForm: React.FC = () => {
                 <Layers className="h-3.5 w-3.5 text-teal-600" />
                 <span>Planned Waterfall Execution Flow</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px]">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[12px]">
                 <div className="flex items-center gap-2 text-slate-700 bg-white p-2 rounded-lg border border-slate-200/50">
                   <span className="font-semibold text-slate-900">Work Email:</span>
                   <span className="text-slate-600 truncate">
                     {result.routing.plannedWaterfall.workEmail?.join(' → ') || 'None'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-700 bg-white p-2 rounded-lg border border-slate-200/50">
+                  <span className="font-semibold text-slate-900">Personal Email:</span>
+                  <span className="text-slate-600 truncate">
+                    {result.routing.plannedWaterfall.personalEmail?.join(' → ') || 'None'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-slate-700 bg-white p-2 rounded-lg border border-slate-200/50">

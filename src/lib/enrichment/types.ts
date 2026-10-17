@@ -15,7 +15,7 @@ export interface FieldEnrichmentResult {
   provider: string | null;
   confidence?: number | null;
   status: "ROUTED" | "FOUND" | "NOT_FOUND" | "SKIPPED" | "FAILED";
-  type?: "GENERIC" | "SPECIFIC" | null;
+  type?: "GENERIC" | "SPECIFIC" | "PERSONAL" | "MOBILE" | null;
   reason?: string;
 }
 
@@ -24,6 +24,20 @@ export interface ProviderEmailResult {
   provider: "prospeo" | "tomba";
   confidence: number;
   type: "GENERIC" | "SPECIFIC";
+}
+
+export interface ProviderPhoneResult {
+  phone: string;
+  provider: "icypeas";
+  type?: "MOBILE";
+  confidence?: number;
+}
+
+export interface ProviderPersonalEmailResult {
+  email: string;
+  provider: "leadmagic";
+  type?: "PERSONAL";
+  confidence?: number;
 }
 
 export interface PlannedWaterfall {
