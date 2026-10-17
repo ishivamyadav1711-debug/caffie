@@ -212,7 +212,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         personalEmail = {
           value: enrichRes.email,
           provider: 'enrich.so',
-          confidence: enrichRes.confidence || 0.9,
+          confidence: 0.9,
           type: 'PERSONAL',
           status: 'FOUND',
         };
@@ -252,7 +252,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         phone = {
           value: enrichRes.phone,
           provider: 'enrich.so',
-          confidence: enrichRes.confidence || 0.85,
+          confidence: 0.85,
           type: 'MOBILE',
           status: 'FOUND',
         };
