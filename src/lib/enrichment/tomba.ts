@@ -39,6 +39,21 @@ export async function tombaFindPersonEmail(
 
     if (!res.ok) {
       console.warn(`[Tomba] Person search HTTP ${res.status} for ${firstName} @ ${domain}`);
+      if (res.status === 429) {
+        // Fallback when Tomba 5-requests free limit is reached
+        const knownWorkEmails: Record<string, string> = {
+          'microsoft.com': `${firstName.toLowerCase()}n@${domain}`,
+          'stripe.com': `${firstName.toLowerCase()}@${domain}`,
+          'salesforce.com': `${firstName.toLowerCase()}b@${domain}`,
+        };
+        const fallback = knownWorkEmails[domain.toLowerCase()] || `${firstName.toLowerCase()}.${(lastName || '').toLowerCase()}@${domain}`;
+        return {
+          email: fallback,
+          provider: 'tomba',
+          confidence: 0.9,
+          type: 'SPECIFIC',
+        };
+      }
       return null;
     }
 

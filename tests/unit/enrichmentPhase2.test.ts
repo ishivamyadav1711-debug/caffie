@@ -52,7 +52,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
   describe('Mode A: Person Search (first_name is provided)', () => {
     it('returns Prospeo email and stops on first success with cost 0.01', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('prospeo.io/email-finder')) {
+        if (url.includes('prospeo.io')) {
           return {
             ok: true,
             json: async () => ({
@@ -85,7 +85,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
 
     it('falls back to Tomba if Prospeo fails and sets cost 0.0178', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('prospeo.io/email-finder')) {
+        if (url.includes('prospeo.io')) {
           return {
             ok: true,
             json: async () => ({ error: true, response: null }),

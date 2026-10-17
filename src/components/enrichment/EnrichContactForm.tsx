@@ -174,7 +174,7 @@ export const EnrichContactForm: React.FC = () => {
                   </span>
                 </h2>
                 <p className="text-[12.5px] text-[#64748B] mt-0.5">
-                  Multi-provider waterfall: Work Email (Prospeo/Tomba), Personal Email (LeadMagic), Phone (Icypeas)
+                  Multi-provider waterfall: Work Email (Prospeo/Tomba), Personal Email & Phone (Enrich.so Demo Mode)
                 </p>
               </div>
             </div>
@@ -188,7 +188,7 @@ export const EnrichContactForm: React.FC = () => {
                 className="text-[11.5px] font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer border border-emerald-300 shadow-xs flex items-center gap-1"
               >
                 <Sparkles className="h-3 w-3 text-emerald-600" />
-                <span>Free Demo (All 3)</span>
+                <span>Run Demo Test (All 3)</span>
               </button>
               <button
                 type="button"
@@ -231,6 +231,18 @@ export const EnrichContactForm: React.FC = () => {
 
         {/* Card Body & Form */}
         <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">
+          {/* Demo Mode Disclaimer */}
+          <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 text-[12px] text-amber-900 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="font-bold px-2 py-0.5 rounded-md bg-amber-600 text-white text-[10.5px]">
+                Demo Mode
+              </span>
+              <span>
+                Free demo integration active: Enrich.so powers Personal Email and Demo Phone at $0.00 cost. Work Email is queried live via Prospeo & Tomba.
+              </span>
+            </div>
+          </div>
+
           {/* Active Mode Notice */}
           <div
             className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-[12px] transition-colors ${

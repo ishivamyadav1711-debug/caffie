@@ -51,19 +51,39 @@ export async function prospeoFindPersonEmail(
   }
 
   try {
-    const res = await fetch('https://api.prospeo.io/email-finder', {
+    let res = await fetch('https://api.prospeo.io/enrich-person', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-KEY': apiKey,
       },
       body: JSON.stringify({
-        first_name: firstName,
-        last_name: lastName || '',
-        company: { domain },
-        domain,
+        only_verified_email: true,
+        enrich_mobile: false,
+        data: {
+          first_name: firstName,
+          last_name: lastName || '',
+          company_website: domain,
+        },
       }),
     });
+
+    if (!res.ok) {
+      // Fallback to legacy endpoint if needed
+      res = await fetch('https://api.prospeo.io/email-finder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-KEY': apiKey,
+        },
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName || '',
+          company: { domain },
+          domain,
+        }),
+      });
+    }
 
     if (!res.ok) {
       console.warn(`[Prospeo] Person search HTTP ${res.status} for ${firstName} @ ${domain}`);
@@ -71,13 +91,21 @@ export async function prospeoFindPersonEmail(
     }
 
     const data = await res.json();
-    const rawEmail = data?.response?.email || data?.email;
+    const rawEmail =
+      data?.response?.person?.email?.email ||
+      data?.person?.email?.email ||
+      data?.response?.email ||
+      data?.email;
+
     const email = normalizeEmail(rawEmail);
     if (!email) return null;
 
-    const confidence = typeof data?.response?.score === 'number'
-      ? data.response.score / 100
-      : 0.9;
+    const score =
+      data?.response?.person?.email?.score ||
+      data?.person?.email?.score ||
+      data?.response?.score;
+
+    const confidence = typeof score === 'number' ? score / 100 : 0.9;
 
     return {
       email,
