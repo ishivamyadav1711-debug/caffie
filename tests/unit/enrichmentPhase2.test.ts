@@ -11,6 +11,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
       ...originalEnv,
       PROSPEO_API_KEY: 'test_prospeo_key',
       TOMBA_API_KEY: 'test_tomba_key',
+      TOMBA_SECRET_KEY: 'test_tomba_secret',
     };
     vi.restoreAllMocks();
   });

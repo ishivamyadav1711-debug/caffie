@@ -12,6 +12,7 @@ export async function tombaFindPersonEmail(
 ): Promise<ProviderEmailResult | null> {
   console.log('[Tomba] Person Search for:', { firstName, lastName, domain });
   const apiKey = process.env.TOMBA_API_KEY;
+  const secretKey = process.env.TOMBA_SECRET_KEY;
   if (!apiKey) {
     console.warn('[Tomba] TOMBA_API_KEY not configured in environment');
     return null;
@@ -24,11 +25,16 @@ export async function tombaFindPersonEmail(
       last_name: lastName || '',
     });
 
+    const headers: Record<string, string> = {
+      'X-Tomba-Key': apiKey,
+    };
+    if (secretKey) {
+      headers['X-Tomba-Secret'] = secretKey;
+    }
+
     const res = await fetch(`https://api.tomba.io/v1/email-finder?${params.toString()}`, {
       method: 'GET',
-      headers: {
-        'X-Tomba-Key': apiKey,
-      },
+      headers,
     });
 
     if (!res.ok) {
@@ -65,17 +71,23 @@ export async function tombaFindDomainEmail(
 ): Promise<ProviderEmailResult | null> {
   console.log('[Tomba] Domain Search for:', domain);
   const apiKey = process.env.TOMBA_API_KEY;
+  const secretKey = process.env.TOMBA_SECRET_KEY;
   if (!apiKey) {
     console.warn('[Tomba] TOMBA_API_KEY not configured in environment');
     return null;
   }
 
   try {
+    const headers: Record<string, string> = {
+      'X-Tomba-Key': apiKey,
+    };
+    if (secretKey) {
+      headers['X-Tomba-Secret'] = secretKey;
+    }
+
     const res = await fetch(`https://api.tomba.io/v1/domain-search?domain=${encodeURIComponent(domain)}`, {
       method: 'GET',
-      headers: {
-        'X-Tomba-Key': apiKey,
-      },
+      headers,
     });
 
     if (!res.ok) {
