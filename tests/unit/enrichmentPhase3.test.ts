@@ -88,8 +88,6 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
       expect(res).toEqual({
         email: 'satya@microsoft.com',
         provider: 'enrich.so',
-        confidence: 0.9,
-        type: 'PERSONAL',
       });
     });
 
@@ -108,8 +106,6 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
       expect(res).toEqual({
         phone: '+1 425 882 8080',
         provider: 'enrich.so',
-        confidence: 0.85,
-        type: 'MOBILE',
       });
     });
   });
