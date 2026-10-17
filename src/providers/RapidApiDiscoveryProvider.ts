@@ -139,18 +139,23 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
 
   /**
    * Normalizes an individual place item from RapidAPI Maps Data into canonical RawDiscoveredBusiness schema.
-   * Completely decoupled from provider-internal key names.
+   * Accurately maps real response fields (phone_number, website/site, review_count, rating, place_id).
    */
   public mapRapidApiItemToBusiness(item: any, params: SearchDiscoveryParams): RawDiscoveredBusiness {
-    const name = String(item.name || item.title || 'Unnamed Business').trim();
+    const name = String(item.name || item.title || item.business_name || 'Unnamed Business').trim();
     const address = String(
       item.full_address || item.address || item.formatted_address || `${params.city || ''} ${params.state}`
     ).trim();
 
-    const rawPhone = item.phone || item.phone_number || item.telephone;
-    const phone = rawPhone ? normalizePhone(String(rawPhone)) : undefined;
+    const rawPhone =
+      item.phone_number ||
+      item.phone ||
+      item.telephone ||
+      item.contact_phone ||
+      (Array.isArray(item.phone_numbers) && item.phone_numbers.length > 0 ? item.phone_numbers[0] : undefined);
+    const phone = rawPhone ? normalizePhone(String(rawPhone), params.country) : undefined;
 
-    const rawWebsite = item.site || item.website || item.website_url;
+    const rawWebsite = item.website || item.site || item.website_url || item.url;
     const website = rawWebsite ? canonicalizeUrl(String(rawWebsite)) : undefined;
 
     const placeId = item.place_id || item.business_id || item.google_id || item.id;
@@ -167,15 +172,34 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       : [params.industry];
 
     const category = item.type || (types.length > 0 ? types[0] : params.industry);
-    const rating = typeof item.rating === 'number' ? item.rating : null;
-    const userRatingCount =
-      typeof item.reviews === 'number'
-        ? item.reviews
-        : typeof item.reviews_data === 'number'
-        ? item.reviews_data
-        : typeof item.review_count === 'number'
-        ? item.review_count
+
+    const rawRating = item.rating ?? item.stars ?? item.score;
+    const parsedRating = typeof rawRating === 'number' ? rawRating : (rawRating ? parseFloat(String(rawRating)) : null);
+    const rating = typeof parsedRating === 'number' && !isNaN(parsedRating) ? parsedRating : null;
+
+    const rawReviews =
+      item.review_count ??
+      item.reviews ??
+      item.reviews_data ??
+      item.rating_count ??
+      item.user_ratings_total;
+    const parsedReviews =
+      typeof rawReviews === 'number'
+        ? rawReviews
+        : rawReviews
+        ? parseInt(String(rawReviews).replace(/\D/g, ''), 10)
         : null;
+    const userRatingCount = typeof parsedReviews === 'number' && !isNaN(parsedReviews) ? parsedReviews : null;
+
+    const isClosed = item.is_permanently_closed === true || item.business_status === 'CLOSED_PERMANENTLY';
+    const isTempClosed = item.is_temporarily_closed === true || item.business_status === 'CLOSED_TEMPORARILY';
+    const businessStatus = isClosed
+      ? 'CLOSED_PERMANENTLY'
+      : isTempClosed
+      ? 'CLOSED_TEMPORARILY'
+      : (item.business_status || item.status || 'OPERATIONAL');
+
+    const positiveReviewDataAvailable = Boolean(rating !== null && rating >= 4.0 && (userRatingCount || 0) > 0);
 
     const latitude =
       typeof item.latitude === 'number'
@@ -199,10 +223,9 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
 
     const sourceUrl =
       item.location_link ||
+      item.place_link ||
       item.google_maps_url ||
       (placeId ? `https://www.google.com/maps/place/?q=place_id:${placeId}` : undefined);
-
-    const businessStatus = item.business_status || item.status || 'OPERATIONAL';
 
     return {
       source: 'rapidapi',
@@ -228,13 +251,16 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       rating,
       userRatingCount,
       businessStatus,
+      positiveReviewDataAvailable,
       rawTags: {
         rapidapiPlaceId: placeId,
         types,
         rating,
         userRatingCount,
-        reviewsCount: item.reviews,
+        reviewCount: userRatingCount,
+        reviewsCount: userRatingCount,
         country: item.country,
+        isPermanentlyClosed: isClosed,
       },
       sourceEvidence: [
         {
@@ -737,15 +763,21 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       else if (Array.isArray(data?.results)) rawItems = data.results;
       else if (Array.isArray(data)) rawItems = data;
 
-      const sampleVenues = rawItems.slice(0, targetLimit).map((item) => ({
-        name: String(item.name || item.title || 'Unknown'),
-        address: item.full_address || item.address || undefined,
-        phone: item.phone || item.phone_number || undefined,
-        website: item.site || item.website || undefined,
-        rating: typeof item.rating === 'number' ? item.rating : null,
-        userRatingCount: typeof item.reviews === 'number' ? item.reviews : (typeof item.reviews_data === 'number' ? item.reviews_data : null),
-        placeId: item.place_id || item.business_id || undefined,
-      }));
+      const sampleVenues = rawItems.slice(0, targetLimit).map((item) => {
+        const rawReviews = item.review_count ?? item.reviews ?? item.reviews_data ?? item.rating_count;
+        const parsedReviews = typeof rawReviews === 'number' ? rawReviews : (rawReviews ? parseInt(String(rawReviews).replace(/\D/g, ''), 10) : null);
+        const userRatingCount = typeof parsedReviews === 'number' && !isNaN(parsedReviews) ? parsedReviews : null;
+        const rawPhone = item.phone_number || item.phone || undefined;
+        return {
+          name: String(item.name || item.title || 'Unknown'),
+          address: item.full_address || item.address || undefined,
+          phone: rawPhone ? normalizePhone(String(rawPhone), country) : undefined,
+          website: item.website || item.site || undefined,
+          rating: typeof item.rating === 'number' ? item.rating : null,
+          userRatingCount,
+          placeId: item.place_id || item.business_id || undefined,
+        };
+      });
 
       return {
         success: true,

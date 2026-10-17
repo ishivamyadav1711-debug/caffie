@@ -33,6 +33,7 @@ export interface ProviderStatItem {
 export interface ProviderManagerResult {
   businesses: RawDiscoveredBusiness[];
   totalDiscovered: number;
+  apiRequestsCount: number;
   sourceComplete: boolean;
   overallStatus: 'COMPLETE' | 'PARTIAL' | 'NO_RESULTS' | 'PROVIDER_FAILURE' | 'PROVIDER_NOT_CONFIGURED';
   statusReason: string;
@@ -95,9 +96,12 @@ export class ProviderManager {
     const primaryConfig = (process.env.PRIMARY_DISCOVERY_PROVIDER || 'rapidapi').toLowerCase().trim();
     const isRapidApiPrimary = primaryConfig !== 'google_places';
 
+    let apiRequestsCount = 0;
+
     const result: ProviderManagerResult = {
       businesses: [],
       totalDiscovered: 0,
+      apiRequestsCount: 0,
       sourceComplete: false,
       overallStatus: 'NO_RESULTS',
       statusReason: '',
@@ -145,6 +149,7 @@ export class ProviderManager {
     const runRapidApi = async () => {
       const isRapidApiConfigured = health.rapidapi.configured && health.rapidapi.enabled;
       if (isRapidApiConfigured && health.rapidapi.healthy) {
+        apiRequestsCount++;
         onProgress?.('Executing RapidAPI Maps Data as Primary discovery provider...');
         const rStart = Date.now();
         const timeouts = getTimeoutConfig();
@@ -218,6 +223,7 @@ export class ProviderManager {
     const runGooglePlaces = async () => {
       const isGoogleConfigured = health.googlePlaces.configured && health.googlePlaces.enabled;
       if (isGoogleConfigured && health.googlePlaces.healthy) {
+        apiRequestsCount++;
         onProgress?.('Executing Google Places API (New)...');
         const gStart = Date.now();
         const timeouts = getTimeoutConfig();
@@ -292,8 +298,7 @@ export class ProviderManager {
     if (isRapidApiPrimary) {
       await runRapidApi();
 
-      // IMPORTANT: Do NOT silently switch to Google Places if RapidAPI fails.
-      // Google Places executes ONLY if explicitly enabled via GOOGLE_PLACES_ENABLED=true.
+      // Google Places executes ONLY if explicitly enabled via GOOGLE_PLACES_ENABLED=true AND primary failed
       if (health.googlePlaces.enabled && health.googlePlaces.configured && health.googlePlaces.healthy) {
         const rapidApiFailed = [
           'FAILED',
@@ -307,7 +312,7 @@ export class ProviderManager {
           'NO_RESULTS',
         ].includes(result.providers.rapidapi?.status || 'DISABLED');
 
-        if (rapidApiFailed || result.businesses.length < requestedLimit) {
+        if (rapidApiFailed) {
           await runGooglePlaces();
         }
       }
@@ -327,12 +332,13 @@ export class ProviderManager {
         'NO_RESULTS',
       ].includes(result.providers.googlePlaces.status);
 
-      if ((googleFailed || result.businesses.length < requestedLimit) && health.rapidapi.enabled) {
+      if (googleFailed && health.rapidapi.enabled) {
         await runRapidApi();
       }
     }
 
     // --- STEP 2: OPENSTREETMAP AS SECONDARY / RELIABLE FALLBACK PROVIDER ---
+    // Section 2: When primary provider succeeds, do not make redundant secondary provider calls.
     const isOsmEnabled = health.osm.configured && health.osm.enabled;
     const primaryStatus = isRapidApiPrimary ? result.providers.rapidapi?.status : result.providers.googlePlaces.status;
     const primaryFailed = [
@@ -347,9 +353,11 @@ export class ProviderManager {
       'NO_RESULTS',
     ].includes(primaryStatus || 'DISABLED');
 
-    const needOsm = primaryFailed || result.businesses.length < requestedLimit;
+    // Only fallback to OSM if primary provider failed or yielded 0 results
+    const needOsm = primaryFailed;
 
     if (isOsmEnabled && needOsm) {
+      apiRequestsCount++;
       onProgress?.('Executing OpenStreetMap Overpass as Secondary / Fallback discovery source...');
       const oStart = Date.now();
       const osmTimeouts = getTimeoutConfig();
@@ -399,7 +407,7 @@ export class ProviderManager {
         rawCount: 0,
         discovered: 0,
         durationMs: 0,
-        reason: 'Primary discovery provider returned sufficient candidate volume.',
+        reason: 'Primary discovery provider succeeded; fallback OpenStreetMap not needed.',
         errors: [],
       };
     } else {
@@ -413,9 +421,10 @@ export class ProviderManager {
       };
     }
 
-    // --- STEP 3: SUPPLEMENTAL WEB SEARCH IF STILL NEEDED ---
-    const currentCount = result.businesses.length;
-    if (currentCount < requestedLimit) {
+    // --- STEP 3: SUPPLEMENTAL WEB SEARCH ONLY IF NO RESULTS ACROSS ALL PROVIDERS ---
+    const needWebSearch = primaryFailed && (result.providers.osm?.status !== 'SUCCESS' || result.businesses.length === 0);
+    if (needWebSearch) {
+      apiRequestsCount++;
       onProgress?.('Supplementing discovery pool with public web search...');
       const wStart = Date.now();
       try {
@@ -453,11 +462,12 @@ export class ProviderManager {
         rawCount: 0,
         discovered: 0,
         durationMs: 0,
-        reason: 'Primary and secondary discovery sources provided sufficient candidate volume.',
+        reason: 'Primary/secondary discovery sources provided sufficient candidate volume.',
         errors: [],
       };
     }
 
+    result.apiRequestsCount = apiRequestsCount;
     result.latencies.totalMs = Date.now() - startTime;
     result.totalDiscovered = result.businesses.length;
     result.sourceComplete = result.totalDiscovered > 0;

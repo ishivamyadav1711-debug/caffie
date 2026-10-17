@@ -1,8 +1,8 @@
 /**
- * Phone Number Utilities: Normalizes phone numbers to standard India (+91) format.
- * Never guesses or fabricates phone numbers.
+ * Phone Number Utilities: Normalizes phone numbers to standard national & E.164 formats.
+ * Supports India (+91), USA & Canada (+1). Never guesses or fabricates phone numbers.
  */
-export function normalizePhone(rawPhone?: string | null): string | undefined {
+export function normalizePhone(rawPhone?: string | null, countryHint?: string): string | undefined {
   if (!rawPhone || typeof rawPhone !== 'string') return undefined;
   const trimmed = rawPhone.trim();
   if (
@@ -19,12 +19,21 @@ export function normalizePhone(rawPhone?: string | null): string | undefined {
   const digits = trimmed.replace(/\D/g, '');
 
   // Reject clearly invalid sequences
-  if (digits.length < 8 || digits.length > 15 || /^0+$/.test(digits) || /^1+$/.test(digits)) {
+  if (digits.length < 7 || digits.length > 15 || /^0+$/.test(digits) || /^1+$/.test(digits)) {
     return undefined;
   }
 
+  const cHint = (countryHint || '').toLowerCase().trim();
+  const isNorthAmerica =
+    cHint === 'us' ||
+    cHint === 'usa' ||
+    cHint === 'united states' ||
+    cHint === 'ca' ||
+    cHint === 'canada' ||
+    trimmed.startsWith('+1');
+
   // 0. North American Numbering Plan (USA & Canada: +1 + 10 digits)
-  if (trimmed.startsWith('+1') || (digits.length === 11 && digits.startsWith('1') && !trimmed.startsWith('+91'))) {
+  if (isNorthAmerica || (digits.length === 11 && digits.startsWith('1') && !trimmed.startsWith('+91'))) {
     const naDigits = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
     if (naDigits.length === 10) {
       return `+1 ${naDigits.slice(0, 3)} ${naDigits.slice(3, 6)} ${naDigits.slice(6)}`;
@@ -51,17 +60,20 @@ export function normalizePhone(rawPhone?: string | null): string | undefined {
   }
 
   // 3. Standard 10-digit Indian mobile number (e.g. 9810123456)
-  if (digits.length === 10 && /^[6-9]\d{9}$/.test(digits)) {
+  if (digits.length === 10 && /^[6-9]\d{9}$/.test(digits) && !isNorthAmerica) {
     return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
   }
 
-  // 4. Other valid length (e.g. landline with STD code 10 digits or 8 digits)
-  if (digits.length === 10) {
-    return `+91 ${digits.slice(0, 4)} ${digits.slice(4)}`;
-  }
-
-  if (digits.length >= 8) {
-    return `+91 ${digits}`;
+  // 4. Other valid Indian length (e.g. landline with STD code 10 digits or 8 digits)
+  if (!isNorthAmerica) {
+    if (digits.length === 10) {
+      return `+91 ${digits.slice(0, 4)} ${digits.slice(4)}`;
+    }
+    if (digits.length >= 8) {
+      return `+91 ${digits}`;
+    }
+  } else if (digits.length === 10) {
+    return `+1 ${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
   }
 
   return undefined;

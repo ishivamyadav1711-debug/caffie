@@ -816,7 +816,11 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
               </h4>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 text-[11.5px]">
                 <div className="bg-white p-2.5 rounded-lg border border-[#E2E8F0]">
-                  <div className="text-[#64748B] text-[10.5px]">Raw Discovered</div>
+                  <div className="text-[#64748B] text-[10.5px]">API Requests</div>
+                  <div className="text-[15px] font-bold text-indigo-700">{pipelineBreakdown?.apiRequestsCount ?? 1}</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-[#E2E8F0]">
+                  <div className="text-[#64748B] text-[10.5px]">Candidates Discovered</div>
                   <div className="text-[15px] font-bold text-[#0F172A]">{pipelineBreakdown?.rawDiscoveredCount ?? pipelineStats?.rawOsmCount ?? 0}</div>
                 </div>
                 <div className="bg-white p-2.5 rounded-lg border border-[#E2E8F0]">
@@ -828,7 +832,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                   <div className="text-[15px] font-bold text-[#0F172A]">{pipelineBreakdown?.locationVerifiedCount ?? pipelineBreakdown?.inCityBoundsCount ?? pipelineStats?.inCityBoundsCount ?? 0}</div>
                 </div>
                 <div className="bg-white p-2.5 rounded-lg border border-[#E2E8F0]">
-                  <div className="text-[#64748B] text-[10.5px]">Deduplicated</div>
+                  <div className="text-[#64748B] text-[10.5px]">Candidates Merged</div>
                   <div className="text-[15px] font-bold text-[#0F172A]">{pipelineBreakdown?.deduplicatedCount ?? pipelineStats?.deduplicatedCount ?? 0}</div>
                 </div>
                 <div className="bg-white p-2.5 rounded-lg border border-[#E2E8F0]">
@@ -855,9 +859,9 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                   <div className="text-[#64748B] text-[10.5px]">Website Unreachable</div>
                   <div className="text-[15px] font-bold text-amber-700">{pipelineBreakdown?.websiteUnreachableCount ?? 0}</div>
                 </div>
-                <div className="bg-white p-2.5 rounded-lg border border-teal-200 col-span-2 sm:col-span-1">
-                  <div className="text-teal-700 text-[10.5px] font-semibold">Final Qualified</div>
-                  <div className="text-[15px] font-bold text-teal-800">{pipelineBreakdown?.finalQualifiedCount ?? leads.length}</div>
+                <div className="bg-white p-2.5 rounded-lg border border-teal-200">
+                  <div className="text-teal-700 text-[10.5px] font-semibold">Leads Delivered</div>
+                  <div className="text-[15px] font-bold text-teal-800">{pipelineBreakdown?.deliveredCount ?? leads.length}</div>
                 </div>
               </div>
             </div>

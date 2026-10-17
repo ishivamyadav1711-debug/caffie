@@ -48,6 +48,7 @@ export interface PipelineBreakdown {
   websiteNeedsImprovementCount?: number;
   finalQualifiedCount: number;
   deliveredCount?: number;
+  apiRequestsCount?: number;
 }
 
 export interface RejectedCandidateItem {
@@ -117,6 +118,7 @@ export interface Job {
   sourceStatus: SearchStatusType;
   sourceComplete: boolean;
   statusReason?: string;
+  apiRequestsCount?: number;
 
   primaryProvider?: string;
   providerStats?: {

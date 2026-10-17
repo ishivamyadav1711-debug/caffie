@@ -107,6 +107,7 @@ export class SearchService {
       },
       pipelineStats: {
         rawOsmCount: job.providerStats?.osm?.rawCount ?? 0,
+        apiRequestsCount: job.apiRequestsCount ?? job.pipelineBreakdown?.apiRequestsCount ?? 1,
         namedCount: job.pipelineBreakdown?.normalizedCount ?? job.normalizedCount ?? job.discovered ?? 0,
         inCityBoundsCount: job.pipelineBreakdown?.locationVerifiedCount ?? job.pipelineBreakdown?.inCityBoundsCount ?? job.locationVerifiedCount ?? 0,
         locationVerifiedCount: job.pipelineBreakdown?.locationVerifiedCount ?? job.pipelineBreakdown?.inCityBoundsCount ?? job.locationVerifiedCount ?? 0,
@@ -160,6 +161,7 @@ export class SearchService {
         ...(job.providersReport || {}),
       },
 
+      apiRequestsCount: job.apiRequestsCount ?? job.pipelineBreakdown?.apiRequestsCount ?? 1,
       mergedCount: job.mergedCount ?? job.deduplicated ?? 0,
       normalizedCount: job.pipelineBreakdown?.normalizedCount ?? job.normalizedCount ?? job.discovered ?? 0,
       locationVerifiedCount: job.pipelineBreakdown?.locationVerifiedCount ?? job.pipelineBreakdown?.inCityBoundsCount ?? job.locationVerifiedCount ?? 0,
@@ -173,7 +175,13 @@ export class SearchService {
       enrichedCount: job.enrichedCount ?? job.enriched ?? 0,
       finalCount: job.finalCount ?? frontendLeads.length,
       rotationStats: job.rotationStats,
-      pipelineBreakdown: job.pipelineBreakdown || {
+      pipelineBreakdown: job.pipelineBreakdown ? {
+        ...job.pipelineBreakdown,
+        apiRequestsCount: job.pipelineBreakdown.apiRequestsCount ?? job.apiRequestsCount ?? 1,
+        finalQualifiedCount: frontendLeads.length,
+        deliveredCount: frontendLeads.length,
+      } : {
+        apiRequestsCount: job.apiRequestsCount ?? 1,
         rawDiscoveredCount: job.discovered || 0,
         normalizedCount: job.normalizedCount ?? job.discovered ?? 0,
         locationCheckedCount: (job.locationVerifiedCount || 0) + (job.rejectionReasons?.OUTSIDE_LOCATION || 0) + (job.rejectionReasons?.UNKNOWN_LOCATION || 0),
@@ -190,6 +198,7 @@ export class SearchService {
         verifiedNoWebsiteCount: summary.noWebsite,
         websiteUnreachableCount: summary.unreachable,
         finalQualifiedCount: frontendLeads.length,
+        deliveredCount: frontendLeads.length,
       },
       rejectedCandidates: job.rejectedCandidates || [],
       progressLog: job.progressLog,

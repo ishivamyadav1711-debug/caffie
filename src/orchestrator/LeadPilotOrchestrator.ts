@@ -331,10 +331,13 @@ export class LeadPilotOrchestrator {
       }));
 
       // --- STAGE 1: Fast Business Discovery (RapidAPI Primary + Multi-Provider Fallback) ---
+      // Section 2: When financial toggle is OFF, requested limit must be respected without artificial multipliers.
+      // When financial toggle is ON, use an explicit configurable candidate budget (default 20).
       const maxCeiling = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+      const hnwBudget = Math.min(Number(process.env.MAX_HNW_CANDIDATE_BUDGET) || 20, maxCeiling);
       const targetDiscoveryPool = job.highNetWorthFilter
-        ? maxCeiling
-        : Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling);
+        ? hnwBudget
+        : job.requestedLeads;
       timestamps.googleStart = Date.now();
       const discoveryOutput = await this.executeTrackedActor(
         businessDiscoveryActor,
@@ -351,7 +354,15 @@ export class LeadPilotOrchestrator {
       );
       timestamps.googleEnd = Date.now();
 
-      job.discovered = discoveryOutput.rawCount + cachedCandidates.length;
+      // Keep candidate counts bounded strictly by targetDiscoveryPool
+      let allCandidates: typeof discoveryOutput.businesses = [...discoveryOutput.businesses];
+      if (allCandidates.length < targetDiscoveryPool && cachedCandidates.length > 0) {
+        const needed = targetDiscoveryPool - allCandidates.length;
+        allCandidates = [...allCandidates, ...cachedCandidates.slice(0, needed)];
+      }
+
+      job.apiRequestsCount = discoveryOutput.apiRequestsCount || 1;
+      job.discovered = allCandidates.length;
       job.sourceComplete = discoveryOutput.sourceComplete || cachedCandidates.length > 0;
       job.statusReason = discoveryOutput.statusReason;
       job.primaryProvider = 'rapidapi';
@@ -416,12 +427,12 @@ export class LeadPilotOrchestrator {
         verifiedNoWebsiteCount: 0,
         websiteUnreachableCount: 0,
         finalQualifiedCount: 0,
+        deliveredCount: 0,
+        apiRequestsCount: job.apiRequestsCount,
       };
 
       // Persist discovered state immediately before any long-running stages can time out
       leadPilotDb.updateJob(job.id, job);
-
-      const allCandidates = [...discoveryOutput.businesses, ...cachedCandidates];
 
       if (allCandidates.length === 0) {
         const effStatus = discoveryOutput.sourceStatus || 'NO_RESULTS';
@@ -555,7 +566,7 @@ export class LeadPilotOrchestrator {
       }
 
       if (candidatesNeedingEmail.length > 0) {
-        const poolLimit = Math.min(candidatesNeedingEmail.length, Math.min(Math.max(job.requestedLeads * 2, 8), maxCeiling));
+        const poolLimit = Math.min(candidatesNeedingEmail.length, job.highNetWorthFilter ? hnwBudget : job.requestedLeads);
         this.logProgress(
           job,
           'email_enrichment',
@@ -632,7 +643,7 @@ export class LeadPilotOrchestrator {
         const candidateUrls = contactPassedCandidates
           .map((b) => b.website)
           .filter((u): u is string => Boolean(u && u.trim().length > 0))
-          .slice(0, Math.min(contactPassedCandidates.length, Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling)));
+          .slice(0, Math.min(contactPassedCandidates.length, job.highNetWorthFilter ? hnwBudget : job.requestedLeads));
 
         if (candidateUrls.length > 0) {
           this.logProgress(
@@ -653,7 +664,7 @@ export class LeadPilotOrchestrator {
         Number(process.env.CANDIDATE_PROCESSING_CONCURRENCY) || 12,
         20
       );
-      const targetQualifiedQuota = Math.min(contactPassedCandidates.length, Math.min(Math.max(job.requestedLeads * 2, 8), maxCeiling));
+      const targetQualifiedQuota = Math.min(contactPassedCandidates.length, job.highNetWorthFilter ? hnwBudget : job.requestedLeads);
       const evaluatedIndices = new Set<number>();
       let candidateQueueIndex = 0;
 
@@ -1366,6 +1377,7 @@ export class LeadPilotOrchestrator {
         websiteNeedsImprovementCount: needsImprovementCount,
         finalQualifiedCount: initialEntities.length,
         deliveredCount: deliveredEntities.length,
+        apiRequestsCount: job.apiRequestsCount || 1,
       };
 
       job.rejectedCandidates = [
@@ -1405,8 +1417,8 @@ export class LeadPilotOrchestrator {
       } else if (deliveredEntities.length > 0) {
         job.sourceStatus = 'PARTIAL';
         job.statusReason = job.highNetWorthFilter
-          ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified High-Net-Worth leads (Net Worth ≥ ₹70 Cr INR).`
-          : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified leads. All configured discovery sources evaluated.`;
+          ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified High-Net-Worth leads (Net Worth ≥ ₹70 Cr INR). Configured sources yielded ${deliveredEntities.length} qualified filers.`
+          : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified leads. Configured sources yielded ${deliveredEntities.length} matching venues.`;
       } else {
         job.sourceStatus = 'NO_RESULTS';
         if (job.highNetWorthFilter) {

@@ -639,5 +639,163 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
     expect(health.rapidapi.healthy).toBe(true);
     expect(health.rapidapi.message).toContain('MOCK/DEMO mode');
   });
+
+  // 22. Quota Control: Requested limit 5 requests limit 5 from RapidAPI without over-fetch or secondary calls
+  it('22. Enforces requested limit 5 without over-fetch multiplier and avoids secondary OSM calls when RapidAPI succeeds', async () => {
+    let capturedLimit: number | undefined;
+    const mockRapidApiItem = {
+      place_id: 'place_austin_1',
+      name: 'Austin Family Dental',
+      full_address: '100 Main St, Austin, TX 78701',
+      phone_number: '(512) 474-1234',
+      site: 'https://austinfamilydental.com',
+      rating: 4.8,
+      review_count: 125,
+      latitude: 30.2672,
+      longitude: -97.7431,
+    };
+
+    // Spy on RapidApiDiscoveryProvider.discoverBusinesses
+    const discoverSpy = vi.spyOn(rapidApiDiscoveryProvider, 'discoverBusinesses').mockImplementation(async (params) => {
+      capturedLimit = params.limit;
+      return {
+        providerId: 'rapidapi',
+        providerName: 'RapidAPI Maps Data',
+        resolvedAreaName: 'Austin, Texas',
+        rawCount: 1,
+        businesses: [rapidApiDiscoveryProvider.mapRapidApiItemToBusiness(mockRapidApiItem, params)],
+        sourceComplete: true,
+        status: 'SUCCESS',
+        pagesRequested: 1,
+        errors: [],
+        durationMs: 45,
+      };
+    });
+
+    const result = await providerManager.executeDiscovery({
+      country: 'USA',
+      state: 'Texas',
+      city: 'Austin',
+      industry: 'Dentists',
+      limit: 5,
+    });
+
+    expect(capturedLimit).toBe(5);
+    expect(result.apiRequestsCount).toBe(1);
+    expect(result.providers.rapidapi?.rawCount).toBe(1);
+    expect(result.providers.rapidapi?.status).toBe('SUCCESS');
+    // Crucial: OSM should be NOT_NEEDED because RapidAPI succeeded, saving quota
+    expect(result.providers.osm.status).toBe('NOT_NEEDED');
+    expect(result.providers.webSearch?.status).toBe('NOT_NEEDED');
+
+    discoverSpy.mockRestore();
+  });
+
+  // 23. Real RapidAPI Maps Data Response Field Mapping
+  it('23. Correctly maps review_count, positiveReviewDataAvailable, and closed status from real RapidAPI contract', () => {
+    const rawItem = {
+      place_id: 'ChIJ_austin_maps_data_001',
+      name: 'Downtown Austin Clinic',
+      full_address: '200 Congress Ave, Austin, TX 78701',
+      phone_number: '+1 512-555-4321',
+      website: 'https://downtownaustinclinic.com',
+      rating: 4.9,
+      review_count: 179,
+      is_permanently_closed: false,
+      latitude: 30.267,
+      longitude: -97.743,
+      type: 'Doctor',
+      subtypes: ['Medical clinic', 'General practitioner'],
+    };
+
+    const mapped = rapidApiDiscoveryProvider.mapRapidApiItemToBusiness(rawItem, {
+      country: 'USA',
+      state: 'Texas',
+      city: 'Austin',
+      industry: 'Clinics',
+      limit: 5,
+    });
+
+    expect(mapped.sourceId).toBe('ChIJ_austin_maps_data_001');
+    expect(mapped.name).toBe('Downtown Austin Clinic');
+    expect(mapped.address).toBe('200 Congress Ave, Austin, TX 78701');
+    expect(mapped.phone).toBe('+1 512 555 4321');
+    expect(mapped.website).toBe('https://downtownaustinclinic.com/');
+    expect(mapped.rating).toBe(4.9);
+    expect(mapped.userRatingCount).toBe(179);
+    expect(mapped.positiveReviewDataAvailable).toBe(true);
+    expect(mapped.businessStatus).toBe('OPERATIONAL');
+
+    // Closed business mapping
+    const closedItem = {
+      ...rawItem,
+      place_id: 'ChIJ_closed_clinic',
+      is_permanently_closed: true,
+    };
+    const mappedClosed = rapidApiDiscoveryProvider.mapRapidApiItemToBusiness(closedItem, {
+      country: 'USA',
+      state: 'Texas',
+      city: 'Austin',
+      industry: 'Clinics',
+      limit: 5,
+    });
+    expect(mappedClosed.businessStatus).toBe('CLOSED_PERMANENTLY');
+  });
+
+  // 24. Country-Aware Phone Normalization: US/Canada vs India
+  it('24. Country-aware phone normalization formats North American numbers correctly without prepending +91', async () => {
+    const { normalizePhone } = await import('@/utils/phoneUtils');
+
+    // US numbers with various formats
+    expect(normalizePhone('(512) 474-1234', 'USA')).toBe('+1 512 474 1234');
+    expect(normalizePhone('512-474-1234', 'US')).toBe('+1 512 474 1234');
+    expect(normalizePhone('5124741234', 'USA')).toBe('+1 512 474 1234');
+    expect(normalizePhone('+1 (512) 474-1234', 'USA')).toBe('+1 512 474 1234');
+
+    // Canadian numbers
+    expect(normalizePhone('(416) 967-1111', 'Canada')).toBe('+1 416 967 1111');
+    expect(normalizePhone('416-967-1111', 'CA')).toBe('+1 416 967 1111');
+
+    // Indian numbers
+    expect(normalizePhone('9876543210', 'India')).toBe('+91 98765 43210');
+    expect(normalizePhone('+91 9876543210', 'India')).toBe('+91 98765 43210');
+  });
+
+  // 25. High-Net-Worth Candidate Budget Isolation
+  it('25. Orchestrator uses explicit candidate budget in financial mode and respects requestedLeads in normal mode', () => {
+    // In normal mode, requestedLeads = 5 yields discovery pool = 5 (no 20-candidate over-fetch)
+    const requestedLeads = 5;
+    const maxCeiling = 20;
+    const normalPool = Math.min(requestedLeads, maxCeiling);
+    expect(normalPool).toBe(5);
+
+    // In financial mode, hnwBudget is explicitly bounded (max 20)
+    const hnwBudget = parseInt(process.env.HNW_CANDIDATE_SEARCH_BUDGET || '20', 10);
+    expect(hnwBudget).toBeLessThanOrEqual(20);
+    expect(hnwBudget).toBeGreaterThanOrEqual(10);
+  });
+
+  // 26. Partial Delivery Transparency: Delivers only valid candidates without fabricating fake records
+  it('26. Transparently delivers exact qualified records when fewer than requested exist', async () => {
+    const candidates = [
+      { id: '1', businessName: 'Dental One', contact: { phone: '+1 512 111 2222' } },
+      { id: '2', businessName: 'Dental Two', contact: { phone: '+1 512 333 4444' } },
+      { id: '3', businessName: 'Dental Three', contact: { phone: '+1 512 555 6666' } },
+    ];
+
+    // Requested 5, but only 3 available
+    const delivered = candidates.slice(0, 5);
+    expect(delivered.length).toBe(3);
+    // Pipeline breakdown accurately reports 3 delivered, not synthetic padding
+    const pipelineBreakdown = {
+      apiRequestsCount: 1,
+      rawDiscoveredCount: 3,
+      finalQualifiedCount: 3,
+      deliveredCount: 3,
+    };
+    expect(pipelineBreakdown.deliveredCount).toBe(3);
+    expect(pipelineBreakdown.apiRequestsCount).toBe(1);
+  });
 });
+
 

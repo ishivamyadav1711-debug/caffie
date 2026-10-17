@@ -182,6 +182,7 @@ export interface PipelineBreakdown {
   websiteNeedsImprovementCount?: number;
   finalQualifiedCount: number;
   deliveredCount?: number;
+  apiRequestsCount?: number;
 }
 
 export interface RejectedCandidateItem {
