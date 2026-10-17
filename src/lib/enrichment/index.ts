@@ -12,6 +12,7 @@ import { prospeoFindPersonEmail, prospeoFindDomainEmail } from './prospeo';
 import { tombaFindPersonEmail, tombaFindDomainEmail } from './tomba';
 import { icypeasFindPhone } from './icypeas';
 import { leadmagicFindPersonalEmail } from './leadmagic';
+import { enrichsoFindPersonalEmail, enrichsoFindPhone } from './enrichso';
 
 // In-memory Layer 0 cache
 const enrichmentCache = new Map<string, EnrichmentOutput>();
@@ -198,19 +199,20 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     }
   }
 
-  // --- PERSONAL EMAIL EXECUTION (Phase 3: LeadMagic, cost +$0.03) ---
+  // --- PERSONAL EMAIL EXECUTION (Free Demo: Enrich.so, cost $0.00) ---
   if (activeFields.includes('personalEmail')) {
     if (firstName) {
-      plannedWaterfall.personalEmail = ['leadmagic'];
-      totalCost += 0.03;
+      plannedWaterfall.personalEmail = ['enrich.so'];
+      // totalCost += 0.03; // LeadMagic cost commented out for Free Demo
 
-      const lmRes = await leadmagicFindPersonalEmail(companyDomain, firstName, lastName);
+      // const lmRes = await leadmagicFindPersonalEmail(companyDomain, firstName, lastName);
+      const enrichRes = await enrichsoFindPersonalEmail(companyDomain, firstName, lastName);
 
-      if (lmRes?.email) {
+      if (enrichRes?.email) {
         personalEmail = {
-          value: lmRes.email,
-          provider: 'leadmagic',
-          confidence: lmRes.confidence || 0.85,
+          value: enrichRes.email,
+          provider: 'enrich.so',
+          confidence: enrichRes.confidence || 0.9,
           type: 'PERSONAL',
           status: 'FOUND',
         };
@@ -237,19 +239,20 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     }
   }
 
-  // --- PHONE EXECUTION (Phase 3: Icypeas, cost +$0.019) ---
+  // --- PHONE EXECUTION (Free Demo: Enrich.so, cost $0.00) ---
   if (activeFields.includes('phone')) {
     if (companyDomain) {
-      plannedWaterfall.phone = ['icypeas'];
-      totalCost += 0.019;
+      plannedWaterfall.phone = ['enrich.so'];
+      // totalCost += 0.019; // Icypeas cost commented out for Free Demo
 
-      const icyRes = await icypeasFindPhone(companyDomain, firstName, lastName, companyCountry);
+      // const icyRes = await icypeasFindPhone(companyDomain, firstName, lastName, companyCountry);
+      const enrichRes = await enrichsoFindPhone(companyDomain, firstName, lastName);
 
-      if (icyRes?.phone) {
+      if (enrichRes?.phone) {
         phone = {
-          value: icyRes.phone,
-          provider: 'icypeas',
-          confidence: icyRes.confidence || 0.85,
+          value: enrichRes.phone,
+          provider: 'enrich.so',
+          confidence: enrichRes.confidence || 0.85,
           type: 'MOBILE',
           status: 'FOUND',
         };

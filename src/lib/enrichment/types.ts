@@ -28,14 +28,14 @@ export interface ProviderEmailResult {
 
 export interface ProviderPhoneResult {
   phone: string;
-  provider: "icypeas";
+  provider: "icypeas" | "enrich.so";
   type?: "MOBILE";
   confidence?: number;
 }
 
 export interface ProviderPersonalEmailResult {
   email: string;
-  provider: "leadmagic";
+  provider: "leadmagic" | "enrich.so";
   type?: "PERSONAL";
   confidence?: number;
 }

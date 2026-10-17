@@ -55,10 +55,17 @@ export const EnrichContactForm: React.FC = () => {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handlePreset = (type: 'person' | 'domain' | 'phone' | 'personalEmail' | 'no-domain') => {
+  const handlePreset = (type: 'person' | 'domain' | 'phone' | 'personalEmail' | 'freeDemo' | 'no-domain') => {
     setError(null);
     setResult(null);
-    if (type === 'person') {
+    if (type === 'freeDemo') {
+      setFirstName('Satya');
+      setLastName('Nadella');
+      setCompanyName('Microsoft');
+      setCompanyDomain('microsoft.com');
+      setCompanyCountry('US');
+      setSelectedFields(['workEmail', 'personalEmail', 'phone']);
+    } else if (type === 'person') {
       setFirstName('Patrick');
       setLastName('Collison');
       setCompanyName('Stripe');
@@ -175,6 +182,14 @@ export const EnrichContactForm: React.FC = () => {
             {/* Quick Test Presets */}
             <div className="flex items-center flex-wrap gap-1.5">
               <span className="text-[11px] font-medium text-[#94A3B8] mr-1">Presets:</span>
+              <button
+                type="button"
+                onClick={() => handlePreset('freeDemo')}
+                className="text-[11.5px] font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer border border-emerald-300 shadow-xs flex items-center gap-1"
+              >
+                <Sparkles className="h-3 w-3 text-emerald-600" />
+                <span>Free Demo (All 3)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => handlePreset('person')}
@@ -382,7 +397,7 @@ export const EnrichContactForm: React.FC = () => {
           {/* Submit Action */}
           <div className="flex items-center justify-between pt-2 border-t border-[#F1F5F9]">
             <p className="text-[11.5px] text-[#94A3B8]">
-              Prospeo: $0.01 • Tomba: $0.0078 • LeadMagic: $0.03 • Icypeas: $0.019
+              Prospeo: $0.01 • Tomba: $0.0078 • Enrich.so (Personal/Phone): Free Demo ($0.00)
             </p>
 
             <button
@@ -587,12 +602,17 @@ export const EnrichContactForm: React.FC = () => {
 
               {/* Metadata details */}
               <div className="flex items-center justify-between text-[11px] text-[#64748B] pt-1">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <Cpu className="h-3.5 w-3.5 text-slate-400" />
                   <span>Provider:</span>
                   <span className="font-semibold text-slate-800 uppercase">
                     {result.personalEmail?.provider || 'None'}
                   </span>
+                  {result.personalEmail?.provider === 'enrich.so' && (
+                    <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-300">
+                      Free Demo
+                    </span>
+                  )}
                 </div>
                 {result.personalEmail?.reason && (
                   <span className="text-slate-500 italic truncate max-w-[140px]" title={result.personalEmail.reason}>
@@ -654,12 +674,17 @@ export const EnrichContactForm: React.FC = () => {
 
               {/* Metadata details */}
               <div className="flex items-center justify-between text-[11px] text-[#64748B] pt-1">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <Cpu className="h-3.5 w-3.5 text-slate-400" />
                   <span>Provider:</span>
                   <span className="font-semibold text-slate-800 uppercase">
                     {result.phone?.provider || 'None'}
                   </span>
+                  {result.phone?.provider === 'enrich.so' && (
+                    <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-300">
+                      Free Demo
+                    </span>
+                  )}
                 </div>
                 {result.phone?.reason && (
                   <span className="text-slate-500 italic truncate max-w-[140px]" title={result.phone.reason}>
