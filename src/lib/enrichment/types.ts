@@ -13,9 +13,17 @@ export interface EnrichmentInput {
 export interface FieldEnrichmentResult {
   value: string | null;
   provider: string | null;
-  confidence: number | null;
-  status: "ROUTED" | "FOUND" | "NOT_FOUND" | "SKIPPED";
+  confidence?: number | null;
+  status: "ROUTED" | "FOUND" | "NOT_FOUND" | "SKIPPED" | "FAILED";
+  type?: "GENERIC" | "SPECIFIC" | null;
   reason?: string;
+}
+
+export interface ProviderEmailResult {
+  email: string;
+  provider: "prospeo" | "tomba";
+  confidence: number;
+  type: "GENERIC" | "SPECIFIC";
 }
 
 export interface PlannedWaterfall {

@@ -8,6 +8,8 @@ import {
   Layer0RoutingMetadata,
   PlannedWaterfall,
 } from './types';
+import { prospeoFindPersonEmail, prospeoFindDomainEmail } from './prospeo';
+import { tombaFindPersonEmail, tombaFindDomainEmail } from './tomba';
 
 // In-memory Layer 0 cache
 const enrichmentCache = new Map<string, EnrichmentOutput>();
@@ -32,9 +34,11 @@ function cleanDomain(val?: string | null): string | null {
 }
 
 /**
- * Phase 1 - Layer 0 Enrichment Engine (Overloaded Input & Field Routing)
- * Company (domain or name) is the primary identifier.
- * Person names (first_name, last_name) are secondary.
+ * LeadPilot Enrichment Engine
+ * Phase 2: Real Work Email Providers (Person Search vs Domain Search)
+ *
+ * Mode A (Person Search): When first_name is provided -> Person search (Prospeo -> Tomba)
+ * Mode B (Domain Search): When first_name is missing -> Domain search (Prospeo -> Tomba)
  */
 export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentOutput> {
   // 1. Layer 0 Input Normalization
@@ -63,14 +67,15 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
 
   if (enrichmentCache.has(cacheKey)) {
     const cachedEntry = enrichmentCache.get(cacheKey)!;
-    console.log('[Layer 0 Cache Hit]:', cacheKey);
+    console.log('[Enrichment Cache Hit]:', cacheKey);
     return { ...cachedEntry, cached: true };
   }
 
-  console.log('[Layer 0 Normalization & Routing]', {
+  console.log('[Enrichment Start]', {
     primaryId,
     person: personId || 'COMPANY_LEVEL',
     fields: activeFields,
+    mode: firstName ? 'PERSON_SEARCH' : 'DOMAIN_SEARCH',
   });
 
   // 5. MX Check for Company Domain
@@ -88,77 +93,145 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     }
   }
 
-  // 6. Field Routing & Waterfall Planning (Architecture Setup - No real API burn)
+  // 6. Waterfall Execution & Cost Tracking
   const plannedWaterfall: PlannedWaterfall = {};
   const skippedFields: { field: EnrichmentField; reason: string }[] = [];
   let workEmail: FieldEnrichmentResult | null = null;
   let personalEmail: FieldEnrichmentResult | null = null;
   let phone: FieldEnrichmentResult | null = null;
+  let totalCost = 0;
 
-  for (const field of activeFields) {
-    if (field === 'workEmail') {
-      if (firstName && companyDomain) {
-        plannedWaterfall.workEmail = ['prospeo', 'tomba', 'findymail'];
+  // --- WORK EMAIL EXECUTION ---
+  if (activeFields.includes('workEmail')) {
+    if (!companyDomain) {
+      // Rule 2: If company_domain is missing, skip real API calls and return status "FAILED" with reason "Domain required"
+      plannedWaterfall.workEmail = ['skipped_no_domain'];
+      workEmail = {
+        value: null,
+        provider: null,
+        confidence: null,
+        status: 'FAILED',
+        type: null,
+        reason: 'Domain required',
+      };
+    } else if (firstName) {
+      // Mode A (Person Search): first_name is provided
+      plannedWaterfall.workEmail = ['prospeo', 'tomba'];
+
+      // Step 1: Try Prospeo person search first
+      totalCost += 0.01;
+      const prospeoRes = await prospeoFindPersonEmail(companyDomain, firstName, lastName);
+
+      if (prospeoRes?.email) {
         workEmail = {
-          value: null,
-          provider: null,
-          confidence: null,
-          status: 'ROUTED',
-          reason: `Routed to Name+Domain waterfall (${plannedWaterfall.workEmail.join(' -> ')})`,
-        };
-      } else if (companyDomain) {
-        plannedWaterfall.workEmail = ['tomba_domain_search', 'internal_crawler'];
-        workEmail = {
-          value: null,
-          provider: null,
-          confidence: null,
-          status: 'ROUTED',
-          reason: 'Company-level domain search (no person name provided)',
+          value: prospeoRes.email,
+          provider: 'prospeo',
+          confidence: prospeoRes.confidence,
+          type: 'SPECIFIC',
+          status: 'FOUND',
         };
       } else {
-        plannedWaterfall.workEmail = ['google_search_enricher', 'company_finder'];
-        workEmail = {
-          value: null,
-          provider: null,
-          confidence: null,
-          status: 'ROUTED',
-          reason: 'Company-name fallback email waterfall',
-        };
-      }
-    }
+        // Step 2: Try Tomba person search if Prospeo fails
+        totalCost += 0.0078;
+        const tombaRes = await tombaFindPersonEmail(companyDomain, firstName, lastName);
 
-    if (field === 'personalEmail') {
-      if (firstName) {
-        plannedWaterfall.personalEmail = ['leadmagic_personal', 'bettercontact_personal'];
-        personalEmail = {
-          value: null,
-          provider: null,
-          confidence: null,
-          status: 'ROUTED',
-          reason: `Routed to Personal Email waterfall for ${firstName} ${lastName || ''}`.trim(),
+        if (tombaRes?.email) {
+          workEmail = {
+            value: tombaRes.email,
+            provider: 'tomba',
+            confidence: tombaRes.confidence,
+            type: 'SPECIFIC',
+            status: 'FOUND',
+          };
+        } else {
+          // Both failed
+          workEmail = {
+            value: null,
+            provider: null,
+            confidence: null,
+            type: 'SPECIFIC',
+            status: 'NOT_FOUND',
+            reason: 'No work email found across providers',
+          };
+        }
+      }
+    } else {
+      // Mode B (Domain Search): first_name is missing
+      plannedWaterfall.workEmail = ['prospeo_domain_search', 'tomba_domain_search'];
+
+      // Step 1: Try Prospeo domain search first
+      totalCost += 0.01;
+      const prospeoRes = await prospeoFindDomainEmail(companyDomain);
+
+      if (prospeoRes?.email) {
+        workEmail = {
+          value: prospeoRes.email,
+          provider: 'prospeo',
+          confidence: prospeoRes.confidence,
+          type: 'GENERIC',
+          status: 'FOUND',
         };
       } else {
-        skippedFields.push({ field: 'personalEmail', reason: 'Personal email enrichment requires first_name' });
-        personalEmail = {
-          value: null,
-          provider: null,
-          confidence: null,
-          status: 'SKIPPED',
-          reason: 'Requires first_name',
-        };
+        // Step 2: Try Tomba domain search if Prospeo fails
+        totalCost += 0.0078;
+        const tombaRes = await tombaFindDomainEmail(companyDomain);
+
+        if (tombaRes?.email) {
+          workEmail = {
+            value: tombaRes.email,
+            provider: 'tomba',
+            confidence: tombaRes.confidence,
+            type: 'GENERIC',
+            status: 'FOUND',
+          };
+        } else {
+          // Both failed
+          workEmail = {
+            value: null,
+            provider: null,
+            confidence: null,
+            type: 'GENERIC',
+            status: 'NOT_FOUND',
+            reason: 'No generic email found across providers',
+          };
+        }
       }
     }
+  }
 
-    if (field === 'phone') {
-      plannedWaterfall.phone = ['icypeas', 'twilio_lookup'];
-      phone = {
+  // --- PERSONAL EMAIL MOCK (Rule 1: Leave personalEmail and phone routing as mock ROUTED) ---
+  if (activeFields.includes('personalEmail')) {
+    if (firstName) {
+      plannedWaterfall.personalEmail = ['leadmagic_personal', 'bettercontact_personal'];
+      personalEmail = {
         value: null,
         provider: null,
         confidence: null,
         status: 'ROUTED',
-        reason: `Routed to Phone waterfall for ${companyName || companyDomain}`,
+        reason: `Routed to Personal Email waterfall for ${firstName} ${lastName || ''}`.trim(),
+      };
+    } else {
+      skippedFields.push({ field: 'personalEmail', reason: 'Personal email enrichment requires first_name' });
+      personalEmail = {
+        value: null,
+        provider: null,
+        confidence: null,
+        status: 'SKIPPED',
+        reason: 'Requires first_name',
       };
     }
+  }
+
+  // --- PHONE MOCK (Rule 1: Leave personalEmail and phone routing as mock ROUTED) ---
+  if (activeFields.includes('phone')) {
+    plannedWaterfall.phone = ['icypeas', 'twilio_lookup'];
+    phone = {
+      value: null,
+      provider: null,
+      confidence: null,
+      status: 'ROUTED',
+      reason: `Routed to Phone waterfall for ${companyName || companyDomain}`,
+    };
   }
 
   // 7. Layer 0 Routing Metadata & Output Assembly
@@ -177,7 +250,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     personalEmail,
     phone,
     cached: false,
-    totalCost: 0,
+    totalCost: Number(totalCost.toFixed(4)),
     routing,
   };
 
@@ -186,3 +259,5 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
 }
 
 export * from './types';
+export * from './prospeo';
+export * from './tomba';
