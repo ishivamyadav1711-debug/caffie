@@ -64,6 +64,10 @@ const tabTitles: Record<NavTab, { title: string; subtitle: string }> = {
     title: 'Help & Docs',
     subtitle: 'Guides and resources for getting the most from LeadPilot.',
   },
+  enrich: {
+    title: 'Enrich Contact',
+    subtitle: 'Test the multi-provider waterfall contact enrichment engine.',
+  },
 };
 
 export const Header: React.FC<HeaderProps> = ({

@@ -14,8 +14,10 @@ import {
   ChevronsRight,
   Compass,
   Mail,
-  Server
+  Server,
+  UserCheck
 } from 'lucide-react';
+import { useRouter, usePathname } from 'next/navigation';
 import { NavTab } from '@/types';
 
 interface SidebarProps {
@@ -42,6 +44,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   collapsed,
   setCollapsed,
 }) => {
+  const router = useRouter();
+  const pathname = usePathname();
+  const isEnrichPage = pathname === '/dashboard/enrich';
+
   const sections: NavSection[] = [
     {
       title: 'MAIN',
@@ -57,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'website-audit', label: 'Website Audit', icon: Globe2 },
         { id: 'demo-websites', label: 'Website Demos', icon: MonitorPlay },
         { id: 'ai-messages', label: 'AI Outreach', icon: Sparkles },
+        { id: 'enrich', label: 'Enrich Contact', icon: UserCheck, badge: 'New' },
       ],
     },
     {
@@ -118,12 +125,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="space-y-0.5 pt-0.5">
               {section.items.map((item) => {
                 const Icon = item.icon;
-                const isActive = activeTab === item.id;
+                const isActive = item.id === 'enrich' ? isEnrichPage : (activeTab === item.id && !isEnrichPage);
+
+                const handleClick = () => {
+                  if (item.id === 'enrich') {
+                    router.push('/dashboard/enrich');
+                  } else {
+                    if (pathname !== '/dashboard') {
+                      router.push('/dashboard');
+                    }
+                    if (setActiveTab) {
+                      setActiveTab(item.id);
+                    }
+                  }
+                };
 
                 return (
                   <button
                     key={item.id}
-                    onClick={() => setActiveTab(item.id)}
+                    onClick={handleClick}
                     title={collapsed ? item.label : undefined}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 min-h-[38px] rounded-xl text-[13px] font-medium transition-colors group relative btn-pressable cursor-pointer ${
                       isActive
