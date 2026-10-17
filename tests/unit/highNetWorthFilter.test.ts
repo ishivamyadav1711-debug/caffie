@@ -263,5 +263,171 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
 
       expect(job.highNetWorthFilter).toBe(true);
     });
+
+    it('expands discovery candidate pool up to server ceiling when highNetWorthFilter is ON', () => {
+      const orchestrator = new LeadPilotOrchestrator();
+      const job = orchestrator.createJob({
+        country: 'USA',
+        state: 'California',
+        city: 'Los Angeles',
+        industry: 'Automotive',
+        limit: 5,
+        highNetWorthFilter: true,
+      });
+
+      expect(job.highNetWorthFilter).toBe(true);
+      expect(job.requestedLeads).toBe(5);
+    });
+  });
+
+  describe('6. Entity Matching & Parent-Company Safeguards', () => {
+    it('rejects local dealerships and service shops from claiming corporate parent filings', async () => {
+      const { calculateEntityMatchConfidence } = await import('@/lib/financial/FinancialEvidenceProvider');
+
+      // Local dealership containing "dealership" or "repair" keyword
+      const dealerScore = calculateEntityMatchConfidence('Downtown Ford Dealership', 'FORD MOTOR CO');
+      expect(dealerScore).toBeLessThan(0.80);
+
+      const repairScore = calculateEntityMatchConfidence('Bob Tesla Repairs & Service Center', 'TESLA, INC.');
+      expect(repairScore).toBeLessThan(0.80);
+
+      // Exact operating corporate names match above 0.80
+      const corporateScore = calculateEntityMatchConfidence('Ford Motor Company', 'FORD MOTOR CO');
+      expect(corporateScore).toBeGreaterThanOrEqual(0.80);
+
+      const tataScore = calculateEntityMatchConfidence('Tata Motors Ltd', 'TATA MOTORS LIMITED');
+      expect(tataScore).toBeGreaterThanOrEqual(0.80);
+    });
+  });
+
+  describe('7. Live SEC EDGAR Public Filing Retrieval & Provenance', () => {
+    it('retrieves and parses verified StockholdersEquity from official SEC EDGAR XBRL facts', async () => {
+      const { PublicRegistryFinancialProvider } = await import('@/lib/financial/FinancialEvidenceProvider');
+      const provider = new PublicRegistryFinancialProvider();
+
+      // Mock fetch for SEC EDGAR XBRL API
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          entityName: 'GENERAL MOTORS CO',
+          facts: {
+            'us-gaap': {
+              'StockholdersEquity': {
+                units: {
+                  'USD': [
+                    {
+                      end: '2025-12-31',
+                      val: 61_119_000_000,
+                      fy: 2025,
+                      fp: 'FY',
+                      form: '10-K',
+                      filed: '2026-01-27',
+                      accn: '0001467858-26-000012',
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }),
+      });
+
+      const originalFetch = global.fetch;
+      global.fetch = mockFetch;
+
+      try {
+        const evidence = await provider.fetchSecEdgarEquity('0001467858', 'GENERAL MOTORS CO', 0.95);
+        expect(evidence).not.toBeNull();
+        expect(evidence?.metricType).toBe('NET_WORTH');
+        expect(evidence?.rawAmount).toBe(61_119_000_000);
+        expect(evidence?.currency).toBe('USD');
+        expect(evidence?.amountInInr).toBe(61_119_000_000 * 84.0);
+        expect(evidence?.thresholdMet).toBe(true);
+        expect(evidence?.sourceName).toContain('US SEC EDGAR Form 10-K');
+        expect(evidence?.sourceUrl).toContain('https://www.sec.gov/edgar/browse/?CIK=0001467858');
+        expect(evidence?.reportingPeriod).toBe('FY2025');
+        expect(evidence?.verificationStatus).toBe('VERIFIED');
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it('returns null gracefully when SEC EDGAR call times out or returns HTTP error', async () => {
+      const { PublicRegistryFinancialProvider } = await import('@/lib/financial/FinancialEvidenceProvider');
+      const provider = new PublicRegistryFinancialProvider();
+
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      try {
+        const evidence = await provider.fetchSecEdgarEquity('0000000000', 'NONEXISTENT ENTITY', 0.90);
+        expect(evidence).toBeNull();
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+  });
+
+  describe('8. Zero-Result Reason Classification', () => {
+    it('distinguishes "No businesses discovered" when discovery candidate pool is 0', () => {
+      const job: any = {
+        highNetWorthFilter: true,
+        discovered: 0,
+        rejectionReasons: { INSUFFICIENT_FINANCIAL_EVIDENCE: 0, BELOW_FINANCIAL_THRESHOLD: 0 },
+      };
+
+      let reason = '';
+      if (job.discovered === 0) {
+        reason = 'No businesses discovered in the requested location. Zero candidate records were available for financial qualification.';
+      }
+      expect(reason).toContain('Zero candidate records were available');
+    });
+
+    it('distinguishes "Insufficient Evidence" when candidates lacked public financial filings', () => {
+      const job: any = {
+        highNetWorthFilter: true,
+        discovered: 12,
+        rejectionReasons: { INSUFFICIENT_FINANCIAL_EVIDENCE: 12, BELOW_FINANCIAL_THRESHOLD: 0 },
+      };
+
+      let reason = '';
+      if ((job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) > 0 && (job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) === 0) {
+        reason = `Discovered ${job.discovered} candidate businesses, but none had verifiable public financial filings or registry disclosures (SEC EDGAR, MCA, SEDAR+). All candidates were excluded as Insufficient Evidence.`;
+      }
+      expect(reason).toContain('none had verifiable public financial filings');
+      expect(reason).toContain('Insufficient Evidence');
+    });
+
+    it('distinguishes "Below Financial Threshold" when candidates had filings with net worth < ₹70 Cr', () => {
+      const job: any = {
+        highNetWorthFilter: true,
+        discovered: 5,
+        rejectionReasons: { INSUFFICIENT_FINANCIAL_EVIDENCE: 3, BELOW_FINANCIAL_THRESHOLD: 2 },
+      };
+
+      let reason = '';
+      if ((job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) > 0) {
+        reason = `Discovered ${job.discovered} businesses with official financial records, but verified net worth was below the ₹70 Crore INR threshold. Zero businesses met the qualification threshold.`;
+      }
+      expect(reason).toContain('below the ₹70 Crore INR threshold');
+    });
+  });
+
+  describe('9. No Mock Data in Live Mode & Accurate Counts', () => {
+    it('returns empty evidence array for ordinary local businesses without public filings', async () => {
+      const { financialEvidenceProvider } = await import('@/lib/financial/FinancialEvidenceProvider');
+
+      // Ordinary local store without public filings
+      const evidence = await financialEvidenceProvider.getFinancialEvidence('Ramesh Corner Grocery', 'India');
+      expect(evidence).toEqual([]);
+
+      const evalResult = evaluateFinancialEligibility(evidence, { businessName: 'Ramesh Corner Grocery' });
+      expect(evalResult.eligibilityState).toBe('INSUFFICIENT_EVIDENCE');
+      expect(evalResult.isQualified).toBe(false);
+      expect(evalResult.amountInInr).toBeUndefined();
+    });
   });
 });

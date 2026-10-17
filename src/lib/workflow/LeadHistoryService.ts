@@ -110,8 +110,12 @@ export class LeadHistoryService {
    * Saves newly delivered candidates to the database for future recent-exclusion.
    * Guarded with safe error handling so persistence errors do not crash caller.
    */
-  public async recordDeliveryToDb(fingerprintKey: string, jobId: string, deliveredLeads: { placeId: string, name: string }[]) {
-    if (deliveredLeads.length === 0) return;
+  public async recordDeliveryToDb(
+    fingerprintKey: string,
+    jobId: string,
+    deliveredLeads: { placeId: string; name: string }[]
+  ): Promise<{ persistedToDb: boolean; inMemorySaved: boolean }> {
+    if (deliveredLeads.length === 0) return { persistedToDb: true, inMemorySaved: false };
 
     // Always update in-memory fingerprint history so fallback has the data
     const existingFp = this.fingerprints.get(fingerprintKey);
@@ -146,8 +150,10 @@ export class LeadHistoryService {
           businessName: lead.name,
         }))
       });
+      return { persistedToDb: true, inMemorySaved: true };
     } catch (err: any) {
       console.warn('[LeadHistoryService] Safe fallback: could not persist searchResultHistory to database:', err.message);
+      return { persistedToDb: false, inMemorySaved: true };
     }
   }
 

@@ -105,9 +105,6 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   const [highNetWorthFilter, setHighNetWorthFilter] = useState<boolean>(
     initialCriteria?.highNetWorthFilter ?? false
   );
-  const [financialFilterMode, setFinancialFilterMode] = useState<'STRICT_NET_WORTH' | 'BROAD_FINANCIAL_SCALE'>(
-    initialCriteria?.financialFilterMode || 'STRICT_NET_WORTH'
-  );
 
   // Background automated multi-step crawler progress
   const [jobState, setJobState] = useState<'idle' | 'running' | 'completed'>('idle');
@@ -246,7 +243,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
       requirePositiveReviewEvidence,
       reviewSort,
       highNetWorthFilter,
-      financialFilterMode,
+      financialFilterMode: 'STRICT_NET_WORTH',
     };
 
     setTimeout(() => setCurrentStepIndex(1), 500);
@@ -493,7 +490,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
 
 
 
-        {/* Experimental High-Net-Worth Business Filter Toggle */}
+        {/* Single High-Net-Worth Business Filter Toggle */}
         <div className={`p-3.5 rounded-xl border transition-all ${
           highNetWorthFilter 
             ? 'bg-gradient-to-r from-violet-50/80 via-purple-50/40 to-amber-50/50 border-violet-300 ring-1 ring-violet-400/40 shadow-xs' 
@@ -509,23 +506,23 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-bold text-[#0F172A]">
-                    High-Net-Worth Business (Experimental)
+                    Businesses with Net Worth ₹70 Cr+
                   </span>
                   {highNetWorthFilter ? (
                     <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-300">
-                      ₹70 Cr INR Filter ACTIVE
+                      Verified Net Worth ₹70 Cr+ Active
                     </span>
                   ) : (
                     <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
-                      Optional Pro Mode
+                      Optional Filter
                     </span>
                   )}
                 </div>
                 <p className="text-[11.5px] text-[#64748B] mt-0.5">
-                  Filters businesses with verified public filings (MCA, SEC, SEDAR+, annual disclosures) confirming financial scale or net worth ≥ ₹70 crore INR.
+                  Filters businesses with verified public regulatory filings (SEC EDGAR, MCA, SEDAR+) confirming net worth (shareholders' equity) ≥ ₹70 crore INR.
                   {highNetWorthFilter && (
                     <span className="block text-violet-700 font-medium mt-1">
-                      Note: Ordinary local businesses without verifiable public filings will be excluded as Insufficient Evidence.
+                      Strict net-worth qualification active: Local and private businesses without verifiable public financial records will be excluded as Insufficient Evidence.
                     </span>
                   )}
                 </p>
@@ -544,45 +541,6 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
               <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-600"></div>
             </label>
           </div>
-
-          {highNetWorthFilter && (
-            <div className="mt-3 pt-3 border-t border-violet-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="text-[12px] text-violet-900 font-semibold flex items-center gap-1.5">
-                <span>Metric Mode:</span>
-                <span className="text-[11px] font-normal text-violet-700">
-                  {financialFilterMode === 'STRICT_NET_WORTH'
-                    ? 'Strict Net Worth (Equity) only — Revenue / Valuation not accepted'
-                    : 'Broad Scale — Accepts Net Worth, Revenue, Valuation, or Total Assets'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  id="strictNetWorthModeBtn"
-                  onClick={() => setFinancialFilterMode('STRICT_NET_WORTH')}
-                  className={`px-3 py-1 text-[11.5px] rounded-lg font-medium transition-all cursor-pointer ${
-                    financialFilterMode === 'STRICT_NET_WORTH'
-                      ? 'bg-violet-700 text-white shadow-xs font-semibold'
-                      : 'bg-white text-slate-700 border border-violet-200 hover:bg-violet-50'
-                  }`}
-                >
-                  Strict Net Worth (₹70+ Cr Equity)
-                </button>
-                <button
-                  type="button"
-                  id="broadScaleModeBtn"
-                  onClick={() => setFinancialFilterMode('BROAD_FINANCIAL_SCALE')}
-                  className={`px-3 py-1 text-[11.5px] rounded-lg font-medium transition-all cursor-pointer ${
-                    financialFilterMode === 'BROAD_FINANCIAL_SCALE'
-                      ? 'bg-violet-700 text-white shadow-xs font-semibold'
-                      : 'bg-white text-slate-700 border border-violet-200 hover:bg-violet-50'
-                  }`}
-                >
-                  Broad Financial Scale (₹70+ Cr)
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Primary Action Button Row */}
@@ -599,7 +557,7 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
               {excludePerfectRating && <span className="text-amber-700 ml-1 font-semibold">• Excl 5.0</span>}
               {highNetWorthFilter && (
                 <span className="text-violet-700 ml-1 font-semibold">
-                  • {financialFilterMode === 'STRICT_NET_WORTH' ? 'Strict Net Worth (₹70+ Cr)' : 'Broad Scale (₹70+ Cr)'}
+                  • Verified Net Worth ₹70 Cr+ Active
                 </span>
               )}
             </span>

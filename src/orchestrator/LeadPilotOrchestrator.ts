@@ -332,7 +332,9 @@ export class LeadPilotOrchestrator {
 
       // --- STAGE 1: Fast Business Discovery (RapidAPI Primary + Multi-Provider Fallback) ---
       const maxCeiling = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
-      const targetDiscoveryPool = Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling);
+      const targetDiscoveryPool = job.highNetWorthFilter
+        ? maxCeiling
+        : Math.min(Math.max(job.requestedLeads * 2, 10), maxCeiling);
       timestamps.googleStart = Date.now();
       const discoveryOutput = await this.executeTrackedActor(
         businessDiscoveryActor,
@@ -1398,18 +1400,28 @@ export class LeadPilotOrchestrator {
       if (deliveredEntities.length >= job.requestedLeads) {
         job.sourceStatus = 'COMPLETE';
         job.statusReason = job.highNetWorthFilter
-          ? `Discovered and qualified ${deliveredEntities.length} verified High-Net-Worth businesses (≥ ₹70 Cr INR scale).`
+          ? `Discovered and qualified ${deliveredEntities.length} verified High-Net-Worth businesses (Net Worth ≥ ₹70 Cr INR).`
           : `Discovered and qualified ${deliveredEntities.length} verified leads satisfying all criteria.`;
       } else if (deliveredEntities.length > 0) {
         job.sourceStatus = 'PARTIAL';
         job.statusReason = job.highNetWorthFilter
-          ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified High-Net-Worth leads (≥ ₹70 Cr INR scale).`
+          ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified High-Net-Worth leads (Net Worth ≥ ₹70 Cr INR).`
           : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified leads. All configured discovery sources evaluated.`;
       } else {
         job.sourceStatus = 'NO_RESULTS';
-        job.statusReason = job.highNetWorthFilter
-          ? `0 businesses qualified for the experimental High-Net-Worth threshold (≥ ₹70 Cr INR) with verified public filings. Candidates without public financial records were excluded as Insufficient Evidence.`
-          : `0 leads met the selected criteria.`;
+        if (job.highNetWorthFilter) {
+          if (job.discovered === 0) {
+            job.statusReason = 'No businesses discovered in the requested location. Zero candidate records were available for financial qualification.';
+          } else if ((job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) > 0) {
+            job.statusReason = `Discovered ${job.discovered} businesses with official financial records, but verified net worth was below the ₹70 Crore INR threshold. Zero businesses met the qualification threshold.`;
+          } else if ((job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) > 0) {
+            job.statusReason = `Discovered ${job.discovered} candidate businesses, but none had verifiable public financial filings or registry disclosures (SEC EDGAR, MCA, SEDAR+). All candidates were excluded as Insufficient Evidence.`;
+          } else {
+            job.statusReason = '0 businesses qualified for the verified Net Worth threshold (≥ ₹70 Cr INR). Candidates failed location, contact, or financial requirements.';
+          }
+        } else {
+          job.statusReason = `0 leads met the selected criteria.`;
+        }
       }
 
       // Persist delivered leads in LeadPilot database for instant reuse & rotation (Section 12), excluding synthetic mock demo leads

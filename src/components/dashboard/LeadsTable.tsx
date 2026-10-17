@@ -894,6 +894,16 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                 <span className="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-medium">
                   MISSING_NAME: <strong>{rejectionReasons?.MISSING_NAME ?? 0}</strong>
                 </span>
+                {(rejectionReasons?.INSUFFICIENT_FINANCIAL_EVIDENCE ?? 0) > 0 && (
+                  <span className="px-2.5 py-1 rounded-md bg-violet-50 text-violet-800 border border-violet-200 font-medium">
+                    INSUFFICIENT_FINANCIAL_EVIDENCE: <strong>{rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE}</strong>
+                  </span>
+                )}
+                {(rejectionReasons?.BELOW_FINANCIAL_THRESHOLD ?? 0) > 0 && (
+                  <span className="px-2.5 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-medium">
+                    BELOW_FINANCIAL_THRESHOLD: <strong>{rejectionReasons.BELOW_FINANCIAL_THRESHOLD}</strong>
+                  </span>
+                )}
                 <span className="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-medium">
                   OTHER: <strong>{rejectionReasons?.OTHER ?? 0}</strong>
                 </span>
@@ -967,6 +977,10 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                                 ? 'bg-rose-50 text-rose-700 border border-rose-200'
                                 : candidate.rejectionReason === 'WEBSITE_UNREACHABLE'
                                 ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                : candidate.rejectionReason === 'INSUFFICIENT_FINANCIAL_EVIDENCE'
+                                ? 'bg-violet-50 text-violet-700 border border-violet-200'
+                                : candidate.rejectionReason === 'BELOW_FINANCIAL_THRESHOLD'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                 : 'bg-slate-100 text-slate-700 border border-slate-200'
                             }`}>
                               {candidate.rejectionReason}
@@ -1076,7 +1090,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                               className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-violet-100 text-violet-800 border border-violet-300 shadow-2xs"
                               title={lead.financialEligibility.qualificationExplanation}
                             >
-                              {lead.financialEligibility.isNetWorth ? '₹70+ Cr Net Worth' : '₹70+ Cr Scale'}
+                              ₹70+ Cr Net Worth
                             </span>
                           )}
                         </div>

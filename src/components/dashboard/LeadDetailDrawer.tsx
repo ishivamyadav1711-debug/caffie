@@ -419,6 +419,14 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
                       <span className="text-[10px] font-semibold text-slate-500 uppercase block">Entity Match Confidence</span>
                       <span className="text-slate-800">{Math.round(lead.financialEligibility.evidence.matchingConfidence * 100)}%</span>
                     </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase block">Retrieval Date</span>
+                      <span className="text-slate-800">{lead.financialEligibility.evidence.retrievalDate ? new Date(lead.financialEligibility.evidence.retrievalDate).toLocaleDateString() : 'Live'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase block">Verification Status</span>
+                      <span className="font-semibold text-emerald-700">{lead.financialEligibility.evidence.verificationStatus || 'VERIFIED'}</span>
+                    </div>
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
