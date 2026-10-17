@@ -50,7 +50,7 @@ export class GoogleDiscoveryCache {
   }): string {
     const norm = (s?: string) => (s ? s.trim().toLowerCase().replace(/\s+/g, '_') : '');
     return [
-      'g_disc_v3',
+      'g_disc_v4',
       norm(params.industry),
       norm(params.country || 'india'),
       norm(params.state),

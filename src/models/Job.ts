@@ -6,6 +6,8 @@ export interface RejectionBreakdown {
   OUTSIDE_LOCATION: number;
   UNKNOWN_LOCATION?: number;
   INVALID_CATEGORY: number;
+  WRONG_CATEGORY?: number;
+  CATEGORY_UNVERIFIED?: number;
   MISSING_NAME: number;
   DUPLICATE: number;
   NO_CONTACT: number;

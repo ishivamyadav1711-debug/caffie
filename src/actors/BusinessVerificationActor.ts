@@ -52,14 +52,13 @@ export class BusinessVerificationActor extends BaseActor<BusinessVerificationInp
 
       // 2. Category sanity check
       if (!b.category || b.category.trim().length === 0) {
-        rejected.push({ business: b, reason: 'INVALID_CATEGORY', details: 'Category is missing' });
+        rejected.push({ business: b, reason: 'CATEGORY_UNVERIFIED', details: 'Category evidence is missing from provider' });
         continue;
       }
 
       // 3. Canonical Industry relevance validation (Early rejection of wrong industries)
       let canonicalCategory = b.category;
       let canonicalIndustry = (b as any).industry || requestedIndustry;
-
 
       if (requestedIndustry && requestedIndustry.trim().length > 0) {
         const valResult = validateIndustryRelevance(
@@ -73,9 +72,10 @@ export class BusinessVerificationActor extends BaseActor<BusinessVerificationInp
         );
 
         if (!valResult.isValid) {
+          const reasonCode = valResult.normalizedCategory === 'CATEGORY_UNVERIFIED' ? 'CATEGORY_UNVERIFIED' : 'INVALID_CATEGORY';
           rejected.push({
             business: b,
-            reason: 'INVALID_CATEGORY',
+            reason: reasonCode,
             details: valResult.rejectionReason || `Category "${b.category}" does not match requested industry "${requestedIndustry}"`,
           });
           continue;

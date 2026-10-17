@@ -235,6 +235,13 @@ export const CANONICAL_INDUSTRIES: Record<CanonicalIndustryId, CanonicalIndustry
       'tea_house',
     ],
     forbiddenGoogleTypes: [
+      'hotel',
+      'motel',
+      'lodging',
+      'resort_hotel',
+      'resort',
+      'guest_house',
+      'hostel',
       'real_estate_agency',
       'hospital',
       'doctor',
@@ -274,7 +281,7 @@ export const CANONICAL_INDUSTRIES: Record<CanonicalIndustryId, CanonicalIndustry
       'grill',
       'treat',
     ],
-    negativeNameKeywords: ['hospital', 'clinic', 'school', 'real estate', 'properties', 'motors', 'hardware'],
+    negativeNameKeywords: ['hotel', 'motel', 'resort', 'hostel', 'lodging', 'inn', 'guest house', 'hospital', 'clinic', 'school', 'real estate', 'properties', 'motors', 'hardware'],
     discoveryQueryExpansions: [
       'Restaurants in',
       'Family Dining Restaurants in',
@@ -928,6 +935,17 @@ export function validateIndustryRelevance(
     }
   }
 
+  // If category evidence is completely missing
+  if (!rawCategory && (!candidate.types || candidate.types.length === 0)) {
+    return {
+      isValid: false,
+      canonicalIndustry: canonicalDef.displayName,
+      normalizedCategory: 'CATEGORY_UNVERIFIED',
+      rejectionReason: `CATEGORY_UNVERIFIED: Missing category evidence for candidate "${candidate.businessName}".`,
+      confidence: 'low',
+    };
+  }
+
   // If custom/other industry requested without forbidden list, perform basic name/category sanity
   if (canonicalDef.id === 'other') {
     return {
@@ -944,18 +962,61 @@ export function validateIndustryRelevance(
   const normalizedPosKeywords = canonicalDef.positiveNameKeywords.map(normalizeCategoryText);
   const normalizedNegKeywords = canonicalDef.negativeNameKeywords.map(normalizeCategoryText);
 
-  // --- STEP 1: STRICT FORBIDDEN TYPES REJECTION ---
+  // --- STEP 1: STRICT FORBIDDEN TYPES REJECTION (Reliable category fields take strict precedence) ---
   const matchingForbidden = normalizedTypes.find((t) =>
     normalizedForbidden.some((f) => t === f || t.includes(f) || f.includes(t))
   );
   if (matchingForbidden) {
-    const hasStrongNameOverride = normalizedPosKeywords.some((kw) => nameNorm.includes(kw));
-    if (!hasStrongNameOverride) {
+    return {
+      isValid: false,
+      canonicalIndustry: canonicalDef.displayName,
+      normalizedCategory: formatCategoryTitle(matchingForbidden, canonicalDef.defaultCategoryLabel),
+      rejectionReason: `Category "${matchingForbidden}" strictly contradicts requested industry "${canonicalDef.displayName}".`,
+      confidence: 'high',
+    };
+  }
+
+  // Explicit industry-specific negative constraints
+  if (canonicalDef.id === 'restaurant') {
+    const isHotelLike = normalizedTypes.some((t) =>
+      t.includes('hotel') || t.includes('lodging') || t.includes('resort') || t.includes('motel') || t.includes('hostel')
+    );
+    if (isHotelLike) {
       return {
         isValid: false,
-        canonicalIndustry: canonicalDef.displayName,
-        normalizedCategory: formatCategoryTitle(matchingForbidden, canonicalDef.defaultCategoryLabel),
-        rejectionReason: `Category "${matchingForbidden}" strictly contradicts requested industry "${canonicalDef.displayName}".`,
+        canonicalIndustry: 'Restaurants',
+        normalizedCategory: 'Hotel',
+        rejectionReason: `Business "${candidate.businessName}" is categorized as lodging/hotel, not a restaurant.`,
+        confidence: 'high',
+      };
+    }
+  }
+
+  if (canonicalDef.id === 'automotive') {
+    const isMedicalLike = normalizedTypes.some((t) =>
+      t.includes('dentist') || t.includes('dental') || t.includes('clinic') || t.includes('doctor') || t.includes('hospital')
+    );
+    if (isMedicalLike) {
+      return {
+        isValid: false,
+        canonicalIndustry: 'Automotive',
+        normalizedCategory: 'Medical / Dental',
+        rejectionReason: `Business "${candidate.businessName}" is categorized as dental/medical, not automotive.`,
+        confidence: 'high',
+      };
+    }
+  }
+
+  if (canonicalDef.id === 'clinic') {
+    const isAutoLike = normalizedTypes.some((t) =>
+      t.includes('car') || t.includes('auto') || t.includes('repair') || t.includes('dealer') || t.includes('mechanic')
+    );
+    if (isAutoLike) {
+      return {
+        isValid: false,
+        canonicalIndustry: 'Clinics',
+        normalizedCategory: 'Automotive',
+        rejectionReason: `Business "${candidate.businessName}" is categorized as automotive, not dental/medical.`,
         confidence: 'high',
       };
     }
@@ -987,7 +1048,7 @@ export function validateIndustryRelevance(
     };
   }
 
-  // --- STEP 3: DISAMBIGUATION VIA NAME KEYWORDS ---
+  // --- STEP 3: DISAMBIGUATION VIA NAME KEYWORDS ONLY WHEN CATEGORY IS NOT CONFLICTING ---
   const hasPositiveName = normalizedPosKeywords.some((kw) => nameNorm.includes(kw));
   const hasNegativeName = normalizedNegKeywords.some((kw) => nameNorm.includes(kw));
 
@@ -1004,7 +1065,7 @@ export function validateIndustryRelevance(
   return {
     isValid: false,
     canonicalIndustry: canonicalDef.displayName,
-    normalizedCategory: rawCategory || 'unknown',
+    normalizedCategory: rawCategory || 'CATEGORY_UNVERIFIED',
     rejectionReason: `Business "${candidate.businessName}" (category: ${rawCategory || 'generic'}) does not match requested industry "${canonicalDef.displayName}".`,
     confidence: 'medium',
   };

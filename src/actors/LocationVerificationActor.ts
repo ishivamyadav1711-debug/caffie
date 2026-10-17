@@ -259,180 +259,267 @@ export class LocationVerificationActor extends BaseActor<LocationVerificationInp
     const reqCityLower = targetCity ? targetCity.toLowerCase() : '';
     const reqStateLower = state ? state.trim().toLowerCase() : '';
 
-    // Specialized logic for USA and Canada
-    if (normCountry === 'USA' || normCountry === 'Canada') {
-      const regions = normCountry === 'USA' ? USA_STATES : CANADA_PROVINCES_AND_TERRITORIES;
-      const targetRegion = regions.find(
-        (r) => r.name.toLowerCase() === reqStateLower || r.code.toLowerCase() === reqStateLower
-      );
-      const targetStateName = targetRegion ? targetRegion.name.toLowerCase() : reqStateLower;
-      const targetStateCode = targetRegion ? targetRegion.code.toLowerCase() : '';
+    const US_STATE_NAMES = [
+      'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware', 'florida',
+      'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine',
+      'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska',
+      'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota',
+      'ohio', 'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina', 'south dakota', 'tennessee',
+      'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming'
+    ];
 
-      for (const b of businesses) {
-        const addrLower = (b.address || '').toLowerCase();
-        const cityTagLower = (b.city || b.rawTags?.['addr:city'] || '').toLowerCase().trim();
+    const US_MAJOR_CITIES = [
+      'atlanta', 'los angeles', 'chicago', 'houston', 'phoenix', 'philadelphia', 'san antonio', 'san diego',
+      'dallas', 'san jose', 'austin', 'seattle', 'denver', 'boston', 'san francisco', 'miami', 'las vegas'
+    ];
 
-        // 1. Cross-country exclusion
-        if (normCountry === 'USA' && (addrLower.includes(', canada') || addrLower.includes(', mexico') || addrLower.includes(', india'))) {
+    const CANADIAN_PROVINCES = [
+      'ontario', 'quebec', 'british columbia', 'alberta', 'manitoba', 'saskatchewan', 'nova scotia',
+      'new brunswick', 'newfoundland', 'prince edward island', 'northwest territories', 'yukon', 'nunavut'
+    ];
+
+    const CANADIAN_MAJOR_CITIES = [
+      'toronto', 'montreal', 'vancouver', 'calgary', 'edmonton', 'ottawa', 'winnipeg', 'quebec city', 'halifax'
+    ];
+
+    const INDIAN_MAJOR_CITIES = [
+      'mumbai', 'delhi', 'bengaluru', 'bangalore', 'hyderabad', 'chennai', 'kolkata', 'pune', 'ahmedabad',
+      'jaipur', 'surat', 'lucknow', 'kanpur', 'nagpur', 'indore', 'thane', 'bhopal', 'visakhapatnam', 'patna',
+      'vadodara', 'ghaziabad', 'ludhiana', 'agra', 'nashik', 'faridabad', 'meerut', 'rajkot', 'varanasi',
+      'srinagar', 'aurangabad', 'dhanbad', 'amritsar', 'navi mumbai', 'allahabad', 'prayagraj', 'ranchi',
+      'howrah', 'coimbatore', 'jabalpur', 'gwalior', 'vijayawada', 'jodhpur', 'madurai', 'raipur', 'kota',
+      'chandigarh', 'guwahati', 'solapur', 'hubli', 'dharwad', 'mysore', 'mysuru', 'tiruchirappalli', 'bareilly',
+      'aligarh', 'tiruppur', 'gurugram', 'gurgaon', 'moradabad', 'jalandhar', 'bhubaneswar', 'salem', 'warangal',
+      'mira bhayandar', 'jalgaon', 'guntur', 'thiruvananthapuram', 'kochi', 'noida', 'greater noida'
+    ];
+
+    for (const b of businesses) {
+      const addrLower = (b.address || '').toLowerCase();
+      const cityTagLower = (b.city || b.rawTags?.['addr:city'] || '').toLowerCase().trim();
+      const stateTagLower = (b.state || b.rawTags?.['addr:state'] || '').toLowerCase().trim();
+      const countryTagLower = (b.country || (b as any).country || b.rawTags?.country || '').toLowerCase().trim();
+
+      const hasCoords = typeof b.latitude === 'number' &&
+        typeof b.longitude === 'number' &&
+        !isNaN(b.latitude) &&
+        !isNaN(b.longitude) &&
+        (b.latitude !== 0 || b.longitude !== 0);
+
+      // --- 1. STRICT CROSS-COUNTRY VALIDATION ---
+      if (normCountry === 'India') {
+        // Must reject if candidate country explicitly indicates non-India
+        if (countryTagLower && !countryTagLower.includes('in') && !countryTagLower.includes('india')) {
           rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
           continue;
         }
-        if (normCountry === 'Canada' && (addrLower.includes(', usa') || addrLower.includes(', united states') || addrLower.includes(', india'))) {
+
+        // Must reject if address contains foreign indicators (USA, Canada, US states, US cities)
+        if (
+          addrLower.includes(', usa') ||
+          addrLower.includes(', united states') ||
+          addrLower.includes(', canada') ||
+          addrLower.includes(', mexico') ||
+          addrLower.includes(', uk') ||
+          US_MAJOR_CITIES.some((uc) => containsWord(addrLower, uc)) ||
+          CANADIAN_MAJOR_CITIES.some((cc) => containsWord(addrLower, cc)) ||
+          US_STATE_NAMES.some((us) => containsWord(addrLower, us)) ||
+          /\b[A-Z]{2}\s+\d{5}(-\d{4})?\b/i.test(b.address || '')
+        ) {
           rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
           continue;
         }
 
-        // 2. Conflicting other state/province check
+        // Coordinates check: must fall within India envelope
+        if (hasCoords) {
+          const inBounds = isCoordinateInLocation(b.latitude!, b.longitude!, targetCity, state, 'India');
+          if (!inBounds) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            continue;
+          }
+        }
+      } else if (normCountry === 'USA') {
+        // Must reject if candidate country explicitly indicates non-USA
+        if (countryTagLower && !countryTagLower.includes('us') && !countryTagLower.includes('united states') && !countryTagLower.includes('usa')) {
+          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          continue;
+        }
+
+        // Must reject if address indicates India, Canada, or Indian states/cities
+        if (
+          addrLower.includes(', canada') ||
+          addrLower.includes(', india') ||
+          addrLower.includes(', in') ||
+          addrLower.includes(', mexico') ||
+          CANADIAN_MAJOR_CITIES.some((cc) => containsWord(addrLower, cc)) ||
+          CANADIAN_PROVINCES.some((cp) => containsWord(addrLower, cp)) ||
+          INDIAN_MAJOR_CITIES.some((ic) => containsWord(addrLower, ic)) ||
+          isKnownIndianState(addrLower) ||
+          /\b\d{6}\b/.test(b.address || '')
+        ) {
+          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          continue;
+        }
+
+        // Coordinates check: must fall within USA envelope
+        if (hasCoords) {
+          const inBounds = isCoordinateInLocation(b.latitude!, b.longitude!, targetCity, state, 'USA');
+          if (!inBounds) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            continue;
+          }
+        }
+      } else if (normCountry === 'Canada') {
+        // Must reject if candidate country explicitly indicates non-Canada
+        if (countryTagLower && !countryTagLower.includes('ca') && !countryTagLower.includes('canada')) {
+          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          continue;
+        }
+
+        // Must reject if address indicates USA or India
+        if (
+          addrLower.includes(', usa') ||
+          addrLower.includes(', united states') ||
+          addrLower.includes(', india') ||
+          US_MAJOR_CITIES.some((uc) => containsWord(addrLower, uc)) ||
+          US_STATE_NAMES.some((us) => containsWord(addrLower, us)) ||
+          INDIAN_MAJOR_CITIES.some((ic) => containsWord(addrLower, ic)) ||
+          isKnownIndianState(addrLower)
+        ) {
+          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          continue;
+        }
+
+        // Coordinates check: must fall within Canada envelope
+        if (hasCoords) {
+          const inBounds = isCoordinateInLocation(b.latitude!, b.longitude!, targetCity, state, 'Canada');
+          if (!inBounds) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            continue;
+          }
+        }
+      }
+
+      // --- 2. STRICT CROSS-STATE / REGION VALIDATION ---
+      if (normCountry === 'USA' || normCountry === 'Canada') {
+        const regions = normCountry === 'USA' ? USA_STATES : CANADA_PROVINCES_AND_TERRITORIES;
+        const targetRegion = regions.find(
+          (r) => r.name.toLowerCase() === reqStateLower || r.code.toLowerCase() === reqStateLower
+        );
+        const targetStateName = targetRegion ? targetRegion.name.toLowerCase() : reqStateLower;
+        const targetStateCode = targetRegion ? targetRegion.code.toLowerCase() : '';
+
+        // Check if address or state tag indicates a different US state or Canadian province
         let conflictingStateFound = false;
         for (const other of regions) {
           if (other.name.toLowerCase() === targetStateName || other.code.toLowerCase() === targetStateCode) continue;
           const otherName = other.name.toLowerCase();
           const otherCodeComma = `, ${other.code.toLowerCase()}`;
           const otherCodeZip = new RegExp(`\\b${other.code.toLowerCase()}\\s+\\d{5}`, 'i');
-          if (containsWord(addrLower, otherName) || addrLower.includes(otherCodeComma) || otherCodeZip.test(addrLower)) {
+          if (containsWord(addrLower, otherName) || addrLower.includes(otherCodeComma) || otherCodeZip.test(addrLower) || stateTagLower === otherName || stateTagLower === other.code.toLowerCase()) {
             conflictingStateFound = true;
             break;
           }
         }
+
         if (conflictingStateFound) {
           rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
           continue;
         }
 
-        // 3. City evaluation
+        // --- 3. STRICT CITY VALIDATION FOR USA / CANADA ---
         if (targetCity) {
           const isCityInAddr = containsWord(addrLower, reqCityLower) || addrLower.includes(reqCityLower);
-          const isCityTag = cityTagLower.includes(reqCityLower) || reqCityLower.includes(cityTagLower);
+          const isCityTag = cityTagLower === reqCityLower || isTargetCityMatch(cityTagLower, reqCityLower);
 
           if (isCityInAddr || isCityTag) {
             verified.push(b);
           } else {
-            // Check if address explicitly states a known other city in the same state
+            // Check if address specifies another known city in the same region
             const otherCity = targetRegion?.cities.find((c) => {
               const cLow = c.toLowerCase();
               return cLow !== reqCityLower && containsWord(addrLower, cLow);
             });
             if (otherCity) {
               rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-            } else {
-              // Address might have a neighborhood, county, or district within the target city
+            } else if (hasCoords && isCoordinateInLocation(b.latitude!, b.longitude!, targetCity, state, normCountry)) {
+              // Valid coordinates within target city bounds
               verified.push(b);
+            } else {
+              // Target city not verified in address or coordinates
+              rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
             }
           }
         } else {
-          // State-wide search
+          // Region-wide search
           verified.push(b);
         }
-      }
+      } else {
+        // --- 4. INDIA STATE & CITY VALIDATION ---
+        if (targetCity) {
+          const isCityTagMatch = isTargetCityMatch(cityTagLower, reqCityLower);
+          const isAddrCityMatch = isTargetCityInAddress(addrLower, reqCityLower);
 
-      context.onProgress?.(`Location verification complete (${normCountry}): ${verified.length} verified, ${unknown.length} unknown, ${rejected.length} outside bounds.`);
-      return {
-        data: { verified, unknown, rejected },
-        sources: ['Municipal Boundary Verifier'],
-      };
-    }
+          const candStateStr = (b.state || b.rawTags?.['addr:state'] || '').trim().toLowerCase();
+          const hasExternalStateTag = Boolean(candStateStr && !isTargetStateMatch(candStateStr, reqStateLower) && isKnownIndianState(candStateStr));
+          const externalStateInAddr = findExternalState(addrLower, reqStateLower);
 
-    for (const b of businesses) {
-      const hasCoords = typeof b.latitude === 'number' &&
-        typeof b.longitude === 'number' &&
-        !isNaN(b.latitude) &&
-        !isNaN(b.longitude) &&
-        (b.latitude !== 0 || b.longitude !== 0);
-      const addrLower = (b.address || '').toLowerCase();
-      const cityTagLower = (b.rawTags?.['addr:city'] || b.city || '').toLowerCase().trim();
-
-      // 1. Evaluate with Coordinates
-      if (hasCoords) {
-        const inBounds = isCoordinateInLocation(b.latitude!, b.longitude!, targetCity, state);
-
-        if (inBounds) {
-          // Check for cross-city explicit tag conflict
-          if (targetCity && cityTagLower && !isTargetCityMatch(cityTagLower, reqCityLower)) {
-            if (isKnownExternalCity(cityTagLower, reqCityLower, state)) {
-              rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-              continue;
-            }
-          }
-          verified.push(b);
-          continue;
-        } else {
-          // If slightly out of bounding box but address or cityTag explicitly confirms city, allow verified
-          if (targetCity && (isTargetCityMatch(cityTagLower, reqCityLower) || isTargetCityInAddress(addrLower, reqCityLower))) {
-            verified.push(b);
+          if (hasExternalStateTag || externalStateInAddr) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
             continue;
           }
-          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-          continue;
+
+          if (isKnownExternalCity(cityTagLower, reqCityLower, state)) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            continue;
+          }
+
+          const externalCityInAddr = findExternalCity(addrLower, reqCityLower, reqStateLower);
+          if (externalCityInAddr) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            continue;
+          }
+
+          if (isCityTagMatch || isAddrCityMatch) {
+            verified.push(b);
+          } else if (hasCoords && isCoordinateInLocation(b.latitude!, b.longitude!, targetCity, state, 'India')) {
+            verified.push(b);
+          } else {
+            // Target city evidence missing or not matching
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+          }
+        } else {
+          // State-only search in India
+          const candStateStr = (b.state || b.rawTags?.['addr:state'] || '').trim().toLowerCase();
+          const isStateTagMatch = candStateStr ? isTargetStateMatch(candStateStr, reqStateLower) : false;
+          const isAddrStateMatch = containsWord(addrLower, reqStateLower);
+          const cityInTargetState = findCityInState(cityTagLower || addrLower, reqStateLower);
+
+          const hasExternalStateTag = Boolean(candStateStr && !isTargetStateMatch(candStateStr, reqStateLower) && isKnownIndianState(candStateStr));
+          const externalStateInAddr = findExternalState(addrLower, reqStateLower);
+
+          if (hasExternalStateTag || externalStateInAddr) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            continue;
+          }
+
+          const externalCityOtherState = findExternalCityForState(cityTagLower || addrLower, reqStateLower);
+          if (externalCityOtherState) {
+            rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
+            continue;
+          }
+
+          if (isStateTagMatch || isAddrStateMatch || cityInTargetState) {
+            verified.push(b);
+          } else if (hasCoords && isCoordinateInLocation(b.latitude!, b.longitude!, undefined, state, 'India')) {
+            verified.push(b);
+          } else {
+            unknown.push(b);
+          }
         }
-      }
-
-      // 2. Coordinates Missing -> Evaluate via Structured Address & Provider Fields
-      if (targetCity) {
-        // A. Target City Match
-        const isCityTagMatch = isTargetCityMatch(cityTagLower, reqCityLower);
-        const isAddrCityMatch = isTargetCityInAddress(addrLower, reqCityLower);
-
-        // Check if candidate explicitly declares an external state
-        const candStateStr = (b.state || b.rawTags?.['addr:state'] || '').trim().toLowerCase();
-        const hasExternalStateTag = Boolean(candStateStr && !isTargetStateMatch(candStateStr, reqStateLower) && isKnownIndianState(candStateStr));
-        const externalStateInAddr = findExternalState(addrLower, reqStateLower);
-
-        if ((isCityTagMatch || isAddrCityMatch) && !hasExternalStateTag) {
-          verified.push(b);
-          continue;
-        }
-
-        // B. Check for Explicit External Location
-        if (hasExternalStateTag || externalStateInAddr) {
-          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-          continue;
-        }
-
-        if (cityTagLower && isKnownExternalCity(cityTagLower, reqCityLower, state)) {
-          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-          continue;
-        }
-
-        const externalCityInAddr = findExternalCity(addrLower, reqCityLower, reqStateLower);
-        if (externalCityInAddr) {
-          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-          continue;
-        }
-
-        // C. Ambiguous / Inconclusive Location
-        unknown.push(b);
-      } else {
-        // State-only search
-        const candStateStr = (b.state || b.rawTags?.['addr:state'] || '').trim().toLowerCase();
-        const isStateTagMatch = candStateStr ? isTargetStateMatch(candStateStr, reqStateLower) : false;
-        const isAddrStateMatch = containsWord(addrLower, reqStateLower);
-        const cityInTargetState = findCityInState(cityTagLower || addrLower, reqStateLower);
-
-        const hasExternalStateTag = Boolean(candStateStr && !isTargetStateMatch(candStateStr, reqStateLower) && isKnownIndianState(candStateStr));
-        const externalStateInAddr = findExternalState(addrLower, reqStateLower);
-
-        if ((isStateTagMatch || isAddrStateMatch || cityInTargetState) && !hasExternalStateTag && !externalStateInAddr) {
-          verified.push(b);
-          continue;
-        }
-
-        if (hasExternalStateTag || externalStateInAddr) {
-          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-          continue;
-        }
-
-        const externalCityOtherState = findExternalCityForState(cityTagLower || addrLower, reqStateLower);
-        if (externalCityOtherState) {
-          rejected.push({ business: b, reason: 'OUTSIDE_LOCATION' });
-          continue;
-        }
-
-        // Ambiguous / Inconclusive Location
-        unknown.push(b);
       }
     }
 
-    context.onProgress?.(`Location verification complete: ${verified.length} verified, ${unknown.length} unknown, ${rejected.length} outside bounds.`);
+    context.onProgress?.(`Location verification complete (${normCountry}): ${verified.length} verified, ${unknown.length} unknown, ${rejected.length} outside bounds.`);
 
     return {
       data: { verified, unknown, rejected },

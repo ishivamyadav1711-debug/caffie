@@ -24,6 +24,7 @@ export class JobManager {
       norm(criteria.excludePerfectRating || 'false'),
       norm(criteria.requirePositiveReviewEvidence || 'false'),
       norm(criteria.reviewSort || 'default'),
+      norm(criteria.highNetWorthFilter || 'false'),
       norm(criteria.limit || 50),
     ].join(':');
   }

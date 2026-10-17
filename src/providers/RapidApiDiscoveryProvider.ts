@@ -8,6 +8,7 @@ import { rapidApiCircuitBreaker } from '@/lib/resilience/CircuitBreaker';
 import { semaphores, getTimeoutConfig } from '@/lib/config/concurrencyConfig';
 import { normalizePhone } from '@/utils/phoneUtils';
 import { canonicalizeUrl } from '@/utils/urlUtils';
+import { logger } from '@/utils/logger';
 
 /**
  * RapidAPI Maps Data Provider Adapter
@@ -227,6 +228,30 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       item.google_maps_url ||
       (placeId ? `https://www.google.com/maps/place/?q=place_id:${placeId}` : undefined);
 
+    // Extract genuine city/state from provider item fields or address components
+    let itemCity = item.city || item.town || item.municipality;
+    let itemState = item.state || item.region || item.province;
+    let itemCountry = item.country;
+
+    // Parse city from address if omitted by provider
+    if (!itemCity && address) {
+      const parts = address.split(',').map((s: string) => s.trim());
+      if (parts.length >= 2) {
+        if (parts.length >= 3) {
+          itemCity = parts[parts.length - 2].replace(/\s+\b[A-Z]{2}\b.*$/i, '').trim();
+        } else {
+          itemCity = parts[0];
+        }
+      }
+    }
+
+    if (!itemCountry && address) {
+      const aLower = address.toLowerCase();
+      if (aLower.includes(', usa') || aLower.includes(', united states')) itemCountry = 'USA';
+      else if (aLower.includes(', canada')) itemCountry = 'Canada';
+      else if (aLower.includes(', india')) itemCountry = 'India';
+    }
+
     return {
       source: 'rapidapi',
       sources: ['rapidapi'],
@@ -237,8 +262,9 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       businessName: name,
       category,
       address,
-      city: item.city || params.city,
-      state: item.state || item.region || params.state,
+      city: itemCity || item.city || (params.city && address.toLowerCase().includes(params.city.toLowerCase()) ? params.city : undefined),
+      state: itemState || item.state || (params.state && address.toLowerCase().includes(params.state.toLowerCase()) ? params.state : undefined),
+      country: itemCountry || (item as any).country,
       postalCode: postalCode ? String(postalCode) : undefined,
       postcode: postalCode ? String(postalCode) : undefined,
       latitude: Number.isFinite(latitude) ? latitude : undefined,
@@ -259,7 +285,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         userRatingCount,
         reviewCount: userRatingCount,
         reviewsCount: userRatingCount,
-        country: item.country,
+        country: itemCountry || item.country,
         isPermanentlyClosed: isClosed,
       },
       sourceEvidence: [
@@ -271,7 +297,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
             placeId,
             rating,
             userRatingCount,
-            country: item.country,
+            country: itemCountry || item.country,
           },
         },
       ],
@@ -548,6 +574,16 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         rawItems = discoveryResult;
       }
 
+      logger.info({
+        actorId: 'rapidapi_discovery',
+        message: 'RapidAPI Query Dispatched',
+        extra: {
+          actualProviderQuery: cleanQuery,
+          countryParam: countryCode,
+          limitParam: targetLimit,
+        },
+      });
+
       // 6. Normalize and perform geographic verification on returned candidates
       const businesses: RawDiscoveredBusiness[] = [];
       const seenIds = new Set<string>();
@@ -555,18 +591,39 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       for (const item of rawItems) {
         if (!item || (!item.name && !item.title)) continue;
 
+        const itemAddr = String(item.full_address || item.address || item.formatted_address || '').toLowerCase();
+        const itemCountryLower = String(item.country || '').toLowerCase().trim();
+
         // Verify returned country/location if returned by provider
-        if (item.country) {
-          const itemCountryLower = String(item.country).toLowerCase().trim();
-          const expectedCode = countryCode;
-          // Check if item country contradicts the requested country
+        if (countryCode === 'in') {
           if (
-            (expectedCode === 'in' && !itemCountryLower.includes('in') && !itemCountryLower.includes('india')) ||
-            (expectedCode === 'us' && !itemCountryLower.includes('us') && !itemCountryLower.includes('united states') && !itemCountryLower.includes('usa')) ||
-            (expectedCode === 'ca' && !itemCountryLower.includes('ca') && !itemCountryLower.includes('canada'))
+            (itemCountryLower && !itemCountryLower.includes('in') && !itemCountryLower.includes('india')) ||
+            itemAddr.includes(', usa') ||
+            itemAddr.includes(', united states') ||
+            itemAddr.includes(', canada') ||
+            /\b(atlanta|los angeles|chicago|houston|phoenix|dallas|seattle|miami|new york)\b/i.test(itemAddr) ||
+            /\b[A-Z]{2}\s+\d{5}(-\d{4})?\b/.test(item.full_address || item.address || '')
           ) {
-            // Discard candidate: geographic mismatch
-            continue;
+            continue; // Geographic mismatch
+          }
+        } else if (countryCode === 'us') {
+          if (
+            (itemCountryLower && !itemCountryLower.includes('us') && !itemCountryLower.includes('united states') && !itemCountryLower.includes('usa')) ||
+            itemAddr.includes(', canada') ||
+            itemAddr.includes(', india') ||
+            /\b(mumbai|delhi|bengaluru|bangalore|hyderabad|chennai|kolkata|pune|ahmedabad)\b/i.test(itemAddr) ||
+            /\b\d{6}\b/.test(item.full_address || item.address || '')
+          ) {
+            continue; // Geographic mismatch
+          }
+        } else if (countryCode === 'ca') {
+          if (
+            (itemCountryLower && !itemCountryLower.includes('ca') && !itemCountryLower.includes('canada')) ||
+            itemAddr.includes(', usa') ||
+            itemAddr.includes(', united states') ||
+            itemAddr.includes(', india')
+          ) {
+            continue; // Geographic mismatch
           }
         }
 
@@ -581,6 +638,17 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
           break;
         }
       }
+
+      logger.info({
+        actorId: 'rapidapi_discovery',
+        message: 'RapidAPI Candidates Received & Filtered',
+        extra: {
+          apiRequestsCount: 1,
+          rawCandidatesReturned: rawItems.length,
+          geographicallyValidCandidates: businesses.length,
+          targetLimit,
+        },
+      });
 
       const durationMs = Date.now() - startTime;
       const status = businesses.length > 0 ? 'SUCCESS' : 'NO_RESULTS';

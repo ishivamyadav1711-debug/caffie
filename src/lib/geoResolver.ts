@@ -278,14 +278,70 @@ export async function resolveIndiaLocation(
  * Validates that discovered latitude and longitude truly falls inside the requested city/state.
  * Rejects out-of-boundary POIs (e.g. Delhi POIs when Noida was requested).
  */
+export const USA_STATE_BOUNDS: Record<string, BoundingBox> = {
+  'Georgia': { south: 30.35, west: -85.61, north: 35.00, east: -80.84, centerLat: 32.1656, centerLon: -82.9001 },
+  'California': { south: 32.53, west: -124.41, north: 42.01, east: -114.13, centerLat: 36.7783, centerLon: -119.4179 },
+  'New York': { south: 40.49, west: -79.76, north: 45.02, east: -71.86, centerLat: 40.7128, centerLon: -74.0060 },
+  'Texas': { south: 25.84, west: -106.65, north: 36.50, east: -93.51, centerLat: 31.9686, centerLon: -99.9018 },
+  'Florida': { south: 24.52, west: -87.63, north: 31.00, east: -80.03, centerLat: 27.6648, centerLon: -81.5158 },
+  'Illinois': { south: 36.97, west: -91.51, north: 42.51, east: -87.02, centerLat: 40.6331, centerLon: -89.3985 },
+  'Washington': { south: 45.54, west: -124.85, north: 49.00, east: -116.92, centerLat: 47.7511, centerLon: -120.7401 },
+  'Massachusetts': { south: 41.23, west: -73.51, north: 42.89, east: -69.93, centerLat: 42.4072, centerLon: -71.3824 },
+  'Pennsylvania': { south: 39.72, west: -80.52, north: 42.27, east: -74.69, centerLat: 41.2033, centerLon: -77.1945 },
+  'Ohio': { south: 38.40, west: -84.82, north: 41.98, east: -80.52, centerLat: 40.4173, centerLon: -82.9071 },
+};
+
+export const USA_CITY_BOUNDS: Record<string, BoundingBox> = {
+  'Atlanta': { south: 33.64, west: -84.55, north: 33.89, east: -84.28, centerLat: 33.7490, centerLon: -84.3880 },
+  'Los Angeles': { south: 33.70, west: -118.67, north: 34.34, east: -118.15, centerLat: 34.0522, centerLon: -118.2437 },
+  'San Francisco': { south: 37.70, west: -122.53, north: 37.84, east: -122.35, centerLat: 37.7749, centerLon: -122.4194 },
+  'New York': { south: 40.49, west: -74.26, north: 40.92, east: -73.70, centerLat: 40.7128, centerLon: -74.0060 },
+  'Chicago': { south: 41.64, west: -87.94, north: 42.03, east: -87.52, centerLat: 41.8781, centerLon: -87.6298 },
+  'Austin': { south: 30.10, west: -97.94, north: 30.52, east: -97.56, centerLat: 30.2672, centerLon: -97.7431 },
+  'Seattle': { south: 47.49, west: -122.44, north: 47.74, east: -122.23, centerLat: 47.6062, centerLon: -122.3321 },
+};
+
+export const CANADA_PROVINCE_BOUNDS: Record<string, BoundingBox> = {
+  'Ontario': { south: 41.67, west: -95.16, north: 56.86, east: -74.34, centerLat: 51.2538, centerLon: -85.3232 },
+  'Quebec': { south: 44.99, west: -79.76, north: 62.59, east: -57.10, centerLat: 52.9399, centerLon: -73.5491 },
+  'British Columbia': { south: 48.22, west: -139.06, north: 60.00, east: -114.05, centerLat: 53.7267, centerLon: -127.6476 },
+  'Alberta': { south: 48.99, west: -120.00, north: 60.00, east: -110.00, centerLat: 53.9333, centerLon: -116.5765 },
+};
+
+/**
+ * Strict Location Verification:
+ * Validates that discovered latitude and longitude truly falls inside the requested city/state/country.
+ * Rejects out-of-boundary POIs (e.g. Atlanta, GA POIs when Mumbai or Los Angeles was requested).
+ */
 export function isCoordinateInLocation(
   lat: number,
   lon: number,
   cityName?: string,
-  stateName?: string
+  stateName?: string,
+  countryName?: string
 ): boolean {
   if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
     return false;
+  }
+
+  const normCountry = (countryName || 'India').trim().toLowerCase();
+
+  // 1. Cross-Country Geographic Coordinate Envelopes
+  if (normCountry === 'india' || normCountry === 'in') {
+    // Coordinates must fall within the broad Indian envelope
+    if (lat < 6.0 || lat > 38.0 || lon < 67.0 || lon > 98.0) {
+      return false;
+    }
+  } else if (normCountry === 'usa' || normCountry === 'united states' || normCountry === 'us') {
+    // Coordinates must fall within USA envelope
+    if (lat < 18.0 || lat > 72.0 || lon > -60.0 || lon < -180.0) {
+      return false;
+    }
+  } else if (normCountry === 'canada' || normCountry === 'ca') {
+    // Coordinates must fall within Canada envelope
+    if (lat < 41.0 || lat > 84.0 || lon > -52.0 || lon < -142.0) {
+      return false;
+    }
   }
 
   let effCity = cityName?.trim();
@@ -293,9 +349,16 @@ export function isCoordinateInLocation(
 
   // Inversion guard: If effCity matches a known State and effState matches a known Major City, swap them
   if (effCity && effState) {
-    const isCityStateName = Object.keys(STATE_BOUNDS).some((s) => s.toLowerCase() === effCity!.toLowerCase());
-    const isStateCityName = Object.keys(MAJOR_CITIES_BOUNDS).some((c) => c.toLowerCase() === effState!.toLowerCase());
-    if (isCityStateName && (isStateCityName || !Object.keys(STATE_BOUNDS).some((s) => s.toLowerCase() === effState!.toLowerCase()))) {
+    const isCityStateName =
+      Object.keys(STATE_BOUNDS).some((s) => s.toLowerCase() === effCity!.toLowerCase()) ||
+      Object.keys(USA_STATE_BOUNDS).some((s) => s.toLowerCase() === effCity!.toLowerCase()) ||
+      Object.keys(CANADA_PROVINCE_BOUNDS).some((s) => s.toLowerCase() === effCity!.toLowerCase());
+
+    const isStateCityName =
+      Object.keys(MAJOR_CITIES_BOUNDS).some((c) => c.toLowerCase() === effState!.toLowerCase()) ||
+      Object.keys(USA_CITY_BOUNDS).some((c) => c.toLowerCase() === effState!.toLowerCase());
+
+    if (isCityStateName && (isStateCityName || (!Object.keys(STATE_BOUNDS).some((s) => s.toLowerCase() === effState!.toLowerCase()) && !Object.keys(USA_STATE_BOUNDS).some((s) => s.toLowerCase() === effState!.toLowerCase())))) {
       const temp = effCity;
       effCity = effState;
       effState = temp;
@@ -303,13 +366,24 @@ export function isCoordinateInLocation(
   }
 
   // If city is specified, check against city bounds
-  if (effCity && effCity.toLowerCase() !== 'all cities in this state' && effCity !== '') {
+  if (effCity && effCity.toLowerCase() !== 'all cities in this state' && effCity.toLowerCase() !== 'all cities in this province' && effCity !== '') {
     let cityBbox: BoundingBox | undefined;
 
+    // Check India major cities
     for (const [key, bbox] of Object.entries(MAJOR_CITIES_BOUNDS)) {
       if (key.toLowerCase() === effCity.toLowerCase()) {
         cityBbox = bbox;
         break;
+      }
+    }
+
+    // Check USA major cities
+    if (!cityBbox) {
+      for (const [key, bbox] of Object.entries(USA_CITY_BOUNDS)) {
+        if (key.toLowerCase() === effCity.toLowerCase()) {
+          cityBbox = bbox;
+          break;
+        }
       }
     }
 
@@ -319,8 +393,8 @@ export function isCoordinateInLocation(
     }
 
     if (cityBbox) {
-      // 0.03 degree margin of tolerance (~3km) for border venues
-      const buffer = 0.03;
+      // 0.05 degree margin of tolerance (~5km) for border venues
+      const buffer = 0.05;
       const insideLat = lat >= cityBbox.south - buffer && lat <= cityBbox.north + buffer;
       const insideLon = lon >= cityBbox.west - buffer && lon <= cityBbox.east + buffer;
       return insideLat && insideLon;
@@ -329,9 +403,32 @@ export function isCoordinateInLocation(
 
   // If state is specified, verify against state bounds
   if (effState) {
+    const effStateLower = effState.toLowerCase();
+
+    // Check India state bounds
     for (const [key, bbox] of Object.entries(STATE_BOUNDS)) {
-      if (key.toLowerCase() === effState.toLowerCase()) {
+      if (key.toLowerCase() === effStateLower) {
         const buffer = 0.05;
+        const insideLat = lat >= bbox.south - buffer && lat <= bbox.north + buffer;
+        const insideLon = lon >= bbox.west - buffer && lon <= bbox.east + buffer;
+        return insideLat && insideLon;
+      }
+    }
+
+    // Check USA state bounds
+    for (const [key, bbox] of Object.entries(USA_STATE_BOUNDS)) {
+      if (key.toLowerCase() === effStateLower) {
+        const buffer = 0.08;
+        const insideLat = lat >= bbox.south - buffer && lat <= bbox.north + buffer;
+        const insideLon = lon >= bbox.west - buffer && lon <= bbox.east + buffer;
+        return insideLat && insideLon;
+      }
+    }
+
+    // Check Canada province bounds
+    for (const [key, bbox] of Object.entries(CANADA_PROVINCE_BOUNDS)) {
+      if (key.toLowerCase() === effStateLower) {
+        const buffer = 0.08;
         const insideLat = lat >= bbox.south - buffer && lat <= bbox.north + buffer;
         const insideLon = lon >= bbox.west - buffer && lon <= bbox.east + buffer;
         return insideLat && insideLon;

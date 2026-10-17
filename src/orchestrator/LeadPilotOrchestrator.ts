@@ -304,8 +304,23 @@ export class LeadPilotOrchestrator {
       const verifiedCity = validation.matchedCity || criteria.city;
       const bbox = verifiedCountry === 'India' ? await resolveIndiaLocation(verifiedState, verifiedCity) : undefined;
 
+      logger.info({
+        jobId: job.id,
+        actorId: 'search_diagnostics',
+        message: 'Search Request Dispatched',
+        extra: {
+          selectedCountry: verifiedCountry,
+          selectedState: verifiedState,
+          selectedCity: verifiedCity || 'All cities',
+          selectedIndustry: criteria.industry,
+          requestedLimit: job.requestedLeads,
+          highNetWorthFilter: job.highNetWorthFilter,
+        },
+      });
+
       // Check persistent storage for previously discovered businesses (Section 12 & 26)
       const existingLeads = leadPilotDb.findLeadsByLocationAndIndustry({
+        country: verifiedCountry,
         state: verifiedState,
         city: verifiedCity,
         industry: criteria.industry,
@@ -322,6 +337,7 @@ export class LeadPilotOrchestrator {
         address: l.address,
         city: l.city,
         state: l.state,
+        country: l.country,
         phone: l.phone,
         email: l.email,
         website: l.website,
@@ -483,6 +499,22 @@ export class LeadPilotOrchestrator {
       job.pipelineBreakdown.locationCheckedCount =
         locationOutput.verified.length + locationOutput.rejected.length + locationOutput.unknown.length;
 
+      for (const rej of locationOutput.rejected) {
+        logger.info({
+          jobId: job.id,
+          actorId: 'location_diagnostics',
+          message: `Location Rejected: ${rej.business.businessName}`,
+          extra: {
+            candidateName: rej.business.businessName,
+            normalizedCountry: rej.business.country || (rej.business as any).country || 'unknown',
+            normalizedState: rej.business.state || 'unknown',
+            normalizedCity: rej.business.city || 'unknown',
+            normalizedCategory: rej.business.category || 'unknown',
+            exactReason: rej.reason || 'OUTSIDE_LOCATION',
+          },
+        });
+      }
+
       // Persist verified location state
       leadPilotDb.updateJob(job.id, job);
 
@@ -497,10 +529,25 @@ export class LeadPilotOrchestrator {
         'Verifying business identity & industry relevance...'
       );
 
-
       for (const rej of businessVerificationOutput.rejected) {
         if (rej.reason === 'MISSING_NAME') job.rejectionReasons.MISSING_NAME++;
-        if (rej.reason === 'INVALID_CATEGORY') job.rejectionReasons.INVALID_CATEGORY++;
+        if (rej.reason === 'INVALID_CATEGORY' || rej.reason === 'CATEGORY_UNVERIFIED') {
+          job.rejectionReasons.INVALID_CATEGORY++;
+        }
+        logger.info({
+          jobId: job.id,
+          actorId: 'category_diagnostics',
+          message: `Category Rejected: ${rej.business.businessName}`,
+          extra: {
+            candidateName: rej.business.businessName,
+            normalizedCountry: rej.business.country || (rej.business as any).country || 'unknown',
+            normalizedState: rej.business.state || 'unknown',
+            normalizedCity: rej.business.city || 'unknown',
+            normalizedCategory: rej.business.category || 'unknown',
+            exactReason: rej.reason,
+            details: rej.details,
+          },
+        });
       }
 
       job.pipelineBreakdown.normalizedCount = businessVerificationOutput.verified.length;
@@ -1115,6 +1162,21 @@ export class LeadPilotOrchestrator {
             } else {
               job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD = (job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) + 1;
             }
+
+            logger.info({
+              jobId: job.id,
+              actorId: 'financial_diagnostics',
+              message: `Financial Qualification Rejected: ${b.businessName}`,
+              extra: {
+                candidateName: b.businessName,
+                normalizedCountry: (b as any).country || criteria.country || 'India',
+                normalizedState: b.state,
+                normalizedCity: b.city,
+                normalizedCategory: b.category,
+                exactReason: isInsufficient ? 'INSUFFICIENT_FINANCIAL_EVIDENCE' : 'BELOW_FINANCIAL_THRESHOLD',
+                details: financialEval.qualificationExplanation,
+              },
+            });
             return null;
           }
         }
@@ -1421,18 +1483,43 @@ export class LeadPilotOrchestrator {
           : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified leads. Configured sources yielded ${deliveredEntities.length} matching venues.`;
       } else {
         job.sourceStatus = 'NO_RESULTS';
-        if (job.highNetWorthFilter) {
-          if (job.discovered === 0) {
-            job.statusReason = 'No businesses discovered in the requested location. Zero candidate records were available for financial qualification.';
-          } else if ((job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) > 0) {
-            job.statusReason = `Discovered ${job.discovered} businesses with official financial records, but verified net worth was below the ₹70 Crore INR threshold. Zero businesses met the qualification threshold.`;
-          } else if ((job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) > 0) {
-            job.statusReason = `Discovered ${job.discovered} candidate businesses, but none had verifiable public financial filings or registry disclosures (SEC EDGAR, MCA, SEDAR+). All candidates were excluded as Insufficient Evidence.`;
-          } else {
-            job.statusReason = '0 businesses qualified for the verified Net Worth threshold (≥ ₹70 Cr INR). Candidates failed location, contact, or financial requirements.';
-          }
+        const providerFailure =
+          job.providerStats?.rapidapi?.status === 'FAILED' ||
+          job.providersReport?.rapidapi?.status === 'FAILED';
+
+        const locationOrCategoryRejections =
+          (job.rejectionReasons.OUTSIDE_LOCATION || 0) +
+          (job.rejectionReasons.UNKNOWN_LOCATION || 0) +
+          (job.rejectionReasons.INVALID_CATEGORY || 0) +
+          (job.rejectionReasons.WRONG_CATEGORY || 0) +
+          (job.rejectionReasons.CATEGORY_UNVERIFIED || 0) +
+          (job.rejectionReasons.MISSING_NAME || 0);
+
+        if (providerFailure) {
+          job.statusReason =
+            'Provider failure: Search provider encountered an error or quota exhaustion while querying candidates.';
+        } else if (job.discovered === 0) {
+          job.statusReason =
+            'No matching candidates found in the specified location and industry.';
+        } else if (
+          locationOrCategoryRejections > 0 &&
+          (job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) === 0 &&
+          (job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) === 0 &&
+          deliveredEntities.length === 0 &&
+          contactPassedCandidates.length === 0
+        ) {
+          job.statusReason = `Discovered ${job.discovered} candidates, but all were rejected for location or category mismatch. Zero candidates reached financial evaluation.`;
+        } else if ((job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) > 0) {
+          job.statusReason = `Discovered ${job.discovered} businesses with official financial records, but verified net worth was below the ₹70 Crore INR threshold. Zero businesses met the qualification threshold.`;
+        } else if ((job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) > 0) {
+          job.statusReason = `Discovered ${job.discovered} candidate businesses, but none had verifiable public financial filings or registry disclosures (SEC EDGAR, MCA, SEDAR+). All candidates were excluded as Insufficient Evidence.`;
+        } else if (job.highNetWorthFilter) {
+          job.statusReason =
+            '0 businesses qualified for the verified Net Worth threshold (≥ ₹70 Cr INR). Candidates failed location, contact, or financial requirements.';
         } else {
-          job.statusReason = `0 leads met the selected criteria.`;
+          job.statusReason = locationOrCategoryRejections > 0
+            ? `0 leads met selected criteria (${locationOrCategoryRejections} candidate(s) rejected for location or category mismatch).`
+            : `0 leads met the selected criteria.`;
         }
       }
 

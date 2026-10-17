@@ -44,26 +44,52 @@ class LeadPilotDatabase {
    * Enables persistent data reuse without calling external APIs repeatedly.
    */
   public findLeadsByLocationAndIndustry(params: {
+    country?: string;
     state: string;
     city?: string;
     industry: string;
   }): LeadEntity[] {
     const norm = (s?: string) => (s || '').toLowerCase().trim();
+    const targetCountry = norm(params.country);
     const targetState = norm(params.state);
     const targetCity = params.city ? norm(params.city) : '';
     const targetInd = norm(params.industry);
 
+    if (!targetState && !targetCity) {
+      return [];
+    }
+
     return Array.from(this.leadsMap.values()).filter((lead) => {
       if (lead.isMock) return false; // Synthetic mock demo leads must never be served as real leads
+
+      // 1. Strict Country match (no cross-country cache leakage)
+      const lCountry = norm(lead.country);
+      if (targetCountry && lCountry && lCountry !== targetCountry) {
+        return false;
+      }
+
+      // 2. Strict State match
       const lState = norm(lead.state);
+      if (targetState) {
+        const stateMatch = lState === targetState;
+        if (!stateMatch) return false;
+      }
+
+      // 3. Strict City match
       const lCity = norm(lead.city);
+      if (targetCity) {
+        const cityMatch = lCity === targetCity;
+        if (!cityMatch) return false;
+      }
+
+      // 4. Strict Industry match
       const lInd = norm(lead.industry || lead.category);
+      if (targetInd) {
+        const indMatch = lInd === targetInd;
+        if (!indMatch) return false;
+      }
 
-      const stateMatch = lState === targetState || lState.includes(targetState) || targetState.includes(lState);
-      const cityMatch = !targetCity || lCity === targetCity || lCity.includes(targetCity) || targetCity.includes(lCity);
-      const indMatch = lInd === targetInd || lInd.includes(targetInd) || targetInd.includes(lInd);
-
-      return stateMatch && cityMatch && indMatch;
+      return true;
     });
   }
 

@@ -22,6 +22,7 @@ export interface RawDiscoveredBusiness {
   address: string;
   city?: string;
   state?: string;
+  country?: string;
   postalCode?: string; // Normalized postal code
   postcode?: string; // Backwards compatible alias
   latitude?: number;
