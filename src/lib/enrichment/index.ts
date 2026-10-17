@@ -1,39 +1,188 @@
 import dns from 'dns';
-import { prospeoFindEmail } from './prospeo';
-import { tombaFindEmail } from './tomba';
-import { findymailFindEmail } from './findymail';
-import { icypeasFindPhone } from './icypeas';
-import { emailVerificationService } from '@/lib/providers/emailVerificationProvider2';
-import { phoneVerificationService } from '@/lib/providers/phoneVerificationProvider';
+import { extractDomain } from '@/utils/urlUtils';
+import {
+  EnrichmentInput,
+  EnrichmentOutput,
+  EnrichmentField,
+  FieldEnrichmentResult,
+  Layer0RoutingMetadata,
+  PlannedWaterfall,
+} from './types';
 
-const cache = new Map<string, any>();
+// In-memory Layer 0 cache
+const enrichmentCache = new Map<string, EnrichmentOutput>();
 
-export async function enrichContact(input: { first_name: string; last_name?: string; company_domain?: string; company_name?: string; company_country?: string }) {
-  const key = `${input.first_name}:${input.last_name || ''}:${input.company_domain || input.company_name || ''}`.toLowerCase();
-  if (cache.has(key)) return { ...cache.get(key), cached: true };
-  let totalCost = 0;
-  if (input.company_domain) {
-    const mx = await dns.promises.resolveMx(input.company_domain).then((r) => r.length > 0).catch(() => false);
-    if (!mx) console.log('[Enrichment] Domain has no MX records:', input.company_domain);
+/**
+ * Normalizes an optional string property: trims whitespace and maps empty strings to null.
+ */
+function cleanString(val?: string | null): string | null {
+  if (!val || typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Normalizes a company domain: removes http/https schemes, www prefixes, and paths.
+ */
+function cleanDomain(val?: string | null): string | null {
+  const cleaned = cleanString(val);
+  if (!cleaned) return null;
+  const extracted = extractDomain(cleaned);
+  return extracted ? extracted.toLowerCase() : cleaned.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+}
+
+/**
+ * Phase 1 - Layer 0 Enrichment Engine (Overloaded Input & Field Routing)
+ * Company (domain or name) is the primary identifier.
+ * Person names (first_name, last_name) are secondary.
+ */
+export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentOutput> {
+  // 1. Layer 0 Input Normalization
+  const firstName = cleanString(input.first_name);
+  const lastName = cleanString(input.last_name);
+  const companyName = cleanString(input.company_name);
+  const companyDomain = cleanDomain(input.company_domain);
+  const companyCity = cleanString(input.company_city);
+  const companyCountry = cleanString(input.company_country);
+
+  // 2. Company Primary Identifier Validation
+  if (!companyDomain && !companyName) {
+    throw new Error('Missing primary company identifier: either company_name or company_domain must be provided');
   }
-  let workEmail: { value: string; provider: string; confidence: number } | null = null;
-  for (const fn of [prospeoFindEmail, tombaFindEmail, findymailFindEmail]) {
-    totalCost += 1;
-    const res = await fn(input);
-    if (res?.email) {
-      const v = await emailVerificationService.verifyEmail(res.email);
-      workEmail = { value: res.email, provider: res.provider, confidence: v.isValid ? res.confidence : 0.5 };
-      break;
+
+  // 3. Requested Fields Resolution
+  const rawFields = Array.isArray(input.fields) ? input.fields : [];
+  const validFields: EnrichmentField[] = ['workEmail', 'personalEmail', 'phone'];
+  const requestedFields: EnrichmentField[] = rawFields.filter((f): f is EnrichmentField => validFields.includes(f));
+  const activeFields: EnrichmentField[] = requestedFields.length > 0 ? requestedFields : validFields;
+
+  // 4. Cache Check (Layer 0 Cache)
+  const primaryId = companyDomain || companyName!;
+  const personId = [firstName, lastName].filter(Boolean).join('_');
+  const cacheKey = `l0:${primaryId}:${personId}:${[...activeFields].sort().join(',')}`.toLowerCase();
+
+  if (enrichmentCache.has(cacheKey)) {
+    const cachedEntry = enrichmentCache.get(cacheKey)!;
+    console.log('[Layer 0 Cache Hit]:', cacheKey);
+    return { ...cachedEntry, cached: true };
+  }
+
+  console.log('[Layer 0 Normalization & Routing]', {
+    primaryId,
+    person: personId || 'COMPANY_LEVEL',
+    fields: activeFields,
+  });
+
+  // 5. MX Check for Company Domain
+  let domainMxValid: boolean | null = null;
+  if (companyDomain) {
+    try {
+      const records = await dns.promises.resolveMx(companyDomain);
+      domainMxValid = Array.isArray(records) && records.length > 0;
+      if (!domainMxValid) {
+        console.log('[Layer 0 MX Check] Domain has no MX records:', companyDomain);
+      }
+    } catch {
+      domainMxValid = false;
+      console.log('[Layer 0 MX Check] Failed to resolve MX for:', companyDomain);
     }
   }
-  let phone: { value: string; provider: string } | null = null;
-  totalCost += 1;
-  const pRes = await icypeasFindPhone(input);
-  if (pRes?.phone) {
-    const pv = await phoneVerificationService.verifyPhone(pRes.phone, input.company_country);
-    phone = { value: pv.normalizedE164 || pv.normalizedPhone || pRes.phone, provider: pRes.provider };
+
+  // 6. Field Routing & Waterfall Planning (Architecture Setup - No real API burn)
+  const plannedWaterfall: PlannedWaterfall = {};
+  const skippedFields: { field: EnrichmentField; reason: string }[] = [];
+  let workEmail: FieldEnrichmentResult | null = null;
+  let personalEmail: FieldEnrichmentResult | null = null;
+  let phone: FieldEnrichmentResult | null = null;
+
+  for (const field of activeFields) {
+    if (field === 'workEmail') {
+      if (firstName && companyDomain) {
+        plannedWaterfall.workEmail = ['prospeo', 'tomba', 'findymail'];
+        workEmail = {
+          value: null,
+          provider: null,
+          confidence: null,
+          status: 'ROUTED',
+          reason: `Routed to Name+Domain waterfall (${plannedWaterfall.workEmail.join(' -> ')})`,
+        };
+      } else if (companyDomain) {
+        plannedWaterfall.workEmail = ['tomba_domain_search', 'internal_crawler'];
+        workEmail = {
+          value: null,
+          provider: null,
+          confidence: null,
+          status: 'ROUTED',
+          reason: 'Company-level domain search (no person name provided)',
+        };
+      } else {
+        plannedWaterfall.workEmail = ['google_search_enricher', 'company_finder'];
+        workEmail = {
+          value: null,
+          provider: null,
+          confidence: null,
+          status: 'ROUTED',
+          reason: 'Company-name fallback email waterfall',
+        };
+      }
+    }
+
+    if (field === 'personalEmail') {
+      if (firstName) {
+        plannedWaterfall.personalEmail = ['leadmagic_personal', 'bettercontact_personal'];
+        personalEmail = {
+          value: null,
+          provider: null,
+          confidence: null,
+          status: 'ROUTED',
+          reason: `Routed to Personal Email waterfall for ${firstName} ${lastName || ''}`.trim(),
+        };
+      } else {
+        skippedFields.push({ field: 'personalEmail', reason: 'Personal email enrichment requires first_name' });
+        personalEmail = {
+          value: null,
+          provider: null,
+          confidence: null,
+          status: 'SKIPPED',
+          reason: 'Requires first_name',
+        };
+      }
+    }
+
+    if (field === 'phone') {
+      plannedWaterfall.phone = ['icypeas', 'twilio_lookup'];
+      phone = {
+        value: null,
+        provider: null,
+        confidence: null,
+        status: 'ROUTED',
+        reason: `Routed to Phone waterfall for ${companyName || companyDomain}`,
+      };
+    }
   }
-  const result = { workEmail, phone, cached: false, totalCost };
-  cache.set(key, result);
-  return result;
+
+  // 7. Layer 0 Routing Metadata & Output Assembly
+  const routing: Layer0RoutingMetadata = {
+    requestedFields: activeFields,
+    primaryIdentifier: companyDomain ? 'domain' : 'company_name',
+    hasPersonName: Boolean(firstName),
+    domainMxValid,
+    plannedWaterfall,
+    ...(skippedFields.length > 0 ? { skippedFields } : {}),
+  };
+
+  const output: EnrichmentOutput = {
+    success: true,
+    workEmail,
+    personalEmail,
+    phone,
+    cached: false,
+    totalCost: 0,
+    routing,
+  };
+
+  enrichmentCache.set(cacheKey, output);
+  return output;
 }
+
+export * from './types';
