@@ -19,7 +19,8 @@ import {
   Building,
   AlertTriangle,
   Send,
-  Sparkles
+  Sparkles,
+  Wand2
 } from 'lucide-react';
 import { BulkAIOutreachModal } from '../outreach/BulkAIOutreachModal';
 import { 
@@ -49,6 +50,7 @@ interface LeadsTableProps {
   statusReason?: string | null;
   errorMessage?: string | null;
   onSelectLead: (lead: Lead) => void;
+  onEnrichLead?: (lead: Lead) => void;
   onQuickAudit?: (lead: Lead) => void;
   onOpenExportModal?: (selectedLeads: Lead[]) => void;
   onShowToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
@@ -69,6 +71,9 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   statusReason,
   errorMessage,
   onSelectLead,
+  onEnrichLead,
+  onQuickAudit,
+  onOpenExportModal,
   onShowToast,
   hasSearched = false,
   isSearching = false,
@@ -1338,15 +1343,32 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
 
                     {/* 10. Actions */}
                     <td className="px-4 py-3.5 align-top text-right whitespace-nowrap">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectLead(lead);
-                        }}
-                        className="inline-flex items-center justify-center h-8.5 min-h-[34px] px-3.5 rounded-xl border border-[#CBD5E1] bg-white text-[12px] font-medium text-[#0F172A] hover:bg-[#0F172A] hover:text-white transition-all btn-pressable shadow-2xs cursor-pointer"
-                      >
-                        View
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onEnrichLead) {
+                              onEnrichLead(lead);
+                            } else {
+                              onSelectLead(lead);
+                            }
+                          }}
+                          className="inline-flex items-center justify-center gap-1.5 h-8.5 min-h-[34px] px-2.5 rounded-xl border border-teal-300 bg-teal-50 text-[12px] font-semibold text-teal-800 hover:bg-teal-700 hover:text-white transition-all btn-pressable shadow-2xs cursor-pointer group"
+                          title="Enrich Lead Contact (Work email, Personal email, Phone)"
+                        >
+                          <Wand2 className="h-3.5 w-3.5 text-teal-600 group-hover:text-white transition-colors" />
+                          <span>Enrich</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectLead(lead);
+                          }}
+                          className="inline-flex items-center justify-center h-8.5 min-h-[34px] px-3.5 rounded-xl border border-[#CBD5E1] bg-white text-[12px] font-medium text-[#0F172A] hover:bg-[#0F172A] hover:text-white transition-all btn-pressable shadow-2xs cursor-pointer"
+                        >
+                          View
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

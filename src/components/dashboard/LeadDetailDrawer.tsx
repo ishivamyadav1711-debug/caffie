@@ -23,19 +23,22 @@ import {
   Download,
   CheckCircle2,
   Clock,
-  ShieldAlert
+  ShieldAlert,
+  Wand2
 } from 'lucide-react';
 import { Lead, OutreachRecord } from '@/types';
 import { getLeadWebsiteStatusBadge, WebsiteBadgeConfig } from '@/utils/statusUtils';
+import type { EnrichmentOutput } from '@/lib/enrichment/types';
 
 export { getLeadWebsiteStatusBadge };
 export type { WebsiteBadgeConfig };
 
-interface LeadDetailDrawerProps {
+export interface LeadDetailDrawerProps {
   lead: Lead | null;
   onClose: () => void;
   onQuickAudit: (lead: Lead) => void;
   onShowToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
+  initialTab?: 'overview' | 'enrichment';
 }
 
 export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
@@ -43,6 +46,7 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
   onClose,
   onQuickAudit,
   onShowToast,
+  initialTab = 'overview',
 }) => {
   // Outreach state
   const [isGeneratingOutreach, setIsGeneratingOutreach] = useState(false);
@@ -69,6 +73,99 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
 
+  // Drawer tab & Enrichment states
+  const [drawerTab, setDrawerTab] = useState<'overview' | 'enrichment'>(initialTab);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichmentResult, setEnrichmentResult] = useState<EnrichmentOutput | null>(null);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
+  const [copiedWorkEmail, setCopiedWorkEmail] = useState(false);
+  const [copiedPersonalEmail, setCopiedPersonalEmail] = useState(false);
+  const [copiedEnrichPhone, setCopiedEnrichPhone] = useState(false);
+
+  useEffect(() => {
+    if (initialTab) {
+      setDrawerTab(initialTab);
+    }
+  }, [initialTab]);
+
+  const handleCopyField = (val: string, field: 'workEmail' | 'personalEmail' | 'phone') => {
+    if (!val) return;
+    navigator.clipboard.writeText(val);
+    if (field === 'workEmail') {
+      setCopiedWorkEmail(true);
+      setTimeout(() => setCopiedWorkEmail(false), 2000);
+    } else if (field === 'personalEmail') {
+      setCopiedPersonalEmail(true);
+      setTimeout(() => setCopiedPersonalEmail(false), 2000);
+    } else {
+      setCopiedEnrichPhone(true);
+      setTimeout(() => setCopiedEnrichPhone(false), 2000);
+    }
+    onShowToast('Copied', `${val} copied to clipboard`, 'info');
+  };
+
+  const cleanLeadDomain = lead?.website?.url
+    ? lead.website.url.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]
+    : lead?.websiteUrl
+    ? lead.websiteUrl.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]
+    : null;
+
+  const handleRunEnrichment = async () => {
+    if (!lead) return;
+    setIsEnriching(true);
+    setEnrichmentError(null);
+
+    let firstName: string | null = null;
+    let lastName: string | null = null;
+
+    if (lead.contact?.name && lead.contact.name !== 'Not available') {
+      const parts = lead.contact.name.trim().split(/\s+/);
+      if (parts.length > 0) {
+        firstName = parts[0];
+        if (parts.length > 1) {
+          lastName = parts.slice(1).join(' ');
+        }
+      }
+    }
+
+    const payload = {
+      company_name: lead.businessName,
+      company_domain: cleanLeadDomain,
+      company_city: lead.location?.city || null,
+      company_country: lead.location?.country || 'India',
+      first_name: firstName,
+      last_name: lastName,
+      fields: ['workEmail', 'personalEmail', 'phone'],
+    };
+
+    try {
+      const res = await fetch('/api/enrichment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to enrich contact data');
+      }
+
+      setEnrichmentResult(data);
+      onShowToast(
+        'Enrichment Complete',
+        data.cached
+          ? 'Retrieved verified contact data from database cache (0 cost).'
+          : 'Enrichment waterfall and verification passed successfully.',
+        'success'
+      );
+    } catch (err: any) {
+      setEnrichmentError(err.message || 'Error executing enrichment pipeline');
+      onShowToast('Enrichment Failed', err.message || 'Error executing enrichment pipeline', 'error');
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
   const fetchOutreachHistory = async () => {
     if (!lead?.id) return;
     setLoadingHistory(true);
@@ -94,6 +191,9 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
       setIsGeneratingOutreach(false);
       setPreviewDemoOpen(false);
       setIsPreviewModalOpen(false);
+      setEnrichmentResult(null);
+      setEnrichmentError(null);
+      setIsEnriching(false);
       fetchOutreachHistory();
     }
   }, [lead?.id]);
@@ -287,7 +387,38 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
           </button>
         </div>
 
-        {/* Drawer Content */}
+        {/* Drawer Tabs */}
+        <div className="flex border-b border-[#E2E8F0] px-5 bg-[#F8FAFC] sticky top-[69px] z-20">
+          <button
+            onClick={() => setDrawerTab('overview')}
+            className={`py-3 px-4 text-[12.5px] font-semibold border-b-2 transition-all cursor-pointer ${
+              drawerTab === 'overview'
+                ? 'border-teal-600 text-teal-700 bg-white shadow-2xs'
+                : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
+            }`}
+          >
+            Overview &amp; Intelligence
+          </button>
+          <button
+            onClick={() => setDrawerTab('enrichment')}
+            className={`py-3 px-4 text-[12.5px] font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+              drawerTab === 'enrichment'
+                ? 'border-teal-600 text-teal-700 bg-white shadow-2xs'
+                : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
+            }`}
+          >
+            <Wand2 className="h-3.5 w-3.5 text-teal-600" />
+            <span>Enrichment</span>
+            {enrichmentResult && (
+              <span className="ml-1 px-1.5 py-0.2 text-[9.5px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Verified
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Drawer Content: Overview Tab */}
+        {drawerTab === 'overview' && (
         <div className="p-6 space-y-6">
           {/* Section: Contact & Location */}
           <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] text-[12.5px]">
@@ -518,21 +649,31 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
               Actions
             </span>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {/* Enrich Contact Action */}
+              <button
+                onClick={() => setDrawerTab('enrichment')}
+                className="flex items-center justify-center gap-1.5 h-10 min-h-[40px] px-2.5 rounded-xl border border-teal-300 bg-teal-50 text-[12px] font-semibold text-teal-800 hover:bg-teal-700 hover:text-white transition-colors shadow-2xs cursor-pointer btn-pressable group"
+                title="Enrich Lead Contact (Work email, Personal email, Phone)"
+              >
+                <Wand2 className="h-3.5 w-3.5 text-teal-600 group-hover:text-white" />
+                <span>Enrich Lead</span>
+              </button>
+
               {/* Audit Website Action */}
               <button
                 onClick={() => onQuickAudit(lead)}
-                className="flex items-center justify-center gap-1.5 h-10 min-h-[40px] px-3 rounded-xl border border-[#CBD5E1] bg-white text-[12px] font-medium text-[#0F172A] hover:bg-[#F8FAFC] transition-colors shadow-2xs cursor-pointer btn-pressable"
+                className="flex items-center justify-center gap-1.5 h-10 min-h-[40px] px-2.5 rounded-xl border border-[#CBD5E1] bg-white text-[12px] font-medium text-[#0F172A] hover:bg-[#F8FAFC] transition-colors shadow-2xs cursor-pointer btn-pressable"
               >
                 <FileSearch className="h-3.5 w-3.5 text-[#64748B]" />
-                <span>Audit Website</span>
+                <span>Audit</span>
               </button>
 
               {/* Send Outreach Action */}
               <button
                 onClick={handleOpenOutreachPreview}
                 disabled={isGeneratingOutreach}
-                className="flex items-center justify-center gap-1.5 h-10 min-h-[40px] px-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-[12px] font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-75 btn-pressable"
+                className="flex items-center justify-center gap-1.5 h-10 min-h-[40px] px-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-[12px] font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-75 btn-pressable"
                 title="Review evidence and initiate real automated outreach"
               >
                 {isGeneratingOutreach ? (
@@ -540,14 +681,14 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
                 ) : (
                   <Send className="h-3.5 w-3.5 text-teal-200" />
                 )}
-                <span>Send Outreach</span>
+                <span>Outreach</span>
               </button>
 
               {/* Create Website Demo Action */}
               <button
                 onClick={handleGenerateDemo}
                 disabled={isGeneratingDemo || demoReady}
-                className={`flex items-center justify-center gap-1.5 h-10 min-h-[40px] px-3 rounded-xl text-[12px] font-medium transition-colors shadow-2xs cursor-pointer btn-pressable ${
+                className={`flex items-center justify-center gap-1.5 h-10 min-h-[40px] px-2.5 rounded-xl text-[12px] font-medium transition-colors shadow-2xs cursor-pointer btn-pressable ${
                   demoReady
                     ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 cursor-default'
                     : 'border border-[#CBD5E1] bg-white text-[#0F172A] hover:bg-[#F8FAFC]'
@@ -558,7 +699,7 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
                 ) : (
                   <MonitorPlay className="h-3.5 w-3.5 text-teal-600" />
                 )}
-                <span>{demoReady ? 'Demo Ready' : 'Create Website Demo'}</span>
+                <span>{demoReady ? 'Demo Ready' : 'Demo'}</span>
               </button>
             </div>
           </div>
@@ -760,6 +901,267 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
             )}
           </div>
         </div>
+        )}
+
+        {/* Drawer Content - Enrichment Tab */}
+        {drawerTab === 'enrichment' && (
+          <div className="p-6 space-y-6 animate-fade-in">
+            {/* Engine Overview Banner */}
+            <div className="p-4 rounded-xl border border-teal-200 bg-teal-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-teal-600 text-white flex items-center justify-center shadow-2xs">
+                    <Wand2 className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-[13.5px] font-bold text-[#0F172A]">Lead Enrichment Engine</h3>
+                    <p className="text-[11.5px] text-[#64748B]">
+                      Waterfall enrichment across Prospeo, Tomba &amp; Enrich.so with ZeroBounce &amp; Twilio verification.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {enrichmentResult?.cached && (
+                <div className="pt-2 border-t border-teal-200/60 flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-teal-900 flex items-center gap-1">
+                    ⚡ Served from Database Cache
+                  </span>
+                  <span className="text-teal-700 font-medium">90-Day TTL Active (Zero Cost)</span>
+                </div>
+              )}
+            </div>
+
+            {/* Target Data Card */}
+            <div className="p-4 rounded-xl border border-[#E2E8F0] bg-white space-y-2 text-[12px] shadow-2xs">
+              <span className="text-[10.5px] font-bold text-[#64748B] uppercase tracking-wider block">
+                Target Information
+              </span>
+              <div className="grid grid-cols-2 gap-3 text-[#334155]">
+                <div>
+                  <span className="text-[10px] text-[#94A3B8] uppercase block">Business Name</span>
+                  <span className="font-semibold text-[#0F172A] truncate block">{lead.businessName}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#94A3B8] uppercase block">Company Domain</span>
+                  <span className="font-semibold text-[#0F172A] truncate block font-mono text-[11.5px]">
+                    {cleanLeadDomain || 'Not specified'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#94A3B8] uppercase block">Contact Name</span>
+                  <span className="font-semibold text-[#0F172A] truncate block">
+                    {lead.contact?.name || 'Company Level Search'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#94A3B8] uppercase block">Location</span>
+                  <span className="font-semibold text-[#0F172A] truncate block">
+                    {lead.location?.city || 'India'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Run Enrichment CTA */}
+            <div>
+              <button
+                onClick={handleRunEnrichment}
+                disabled={isEnriching}
+                className="w-full flex items-center justify-center gap-2 h-11 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-[13px] font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-75 btn-pressable"
+              >
+                {isEnriching ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    <span>Executing Waterfall &amp; Verification...</span>
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="h-4 w-4 text-teal-200" />
+                    <span>{enrichmentResult ? 'Re-run Enrichment' : 'Run Enrichment'}</span>
+                  </>
+                )}
+              </button>
+              {enrichmentError && (
+                <div className="mt-2.5 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[12px] flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>{enrichmentError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Results Section */}
+            <div className="space-y-3">
+              <span className="text-[11px] font-bold text-[#475569] uppercase tracking-wider block">
+                Enriched Contact Results
+              </span>
+
+              {/* 1. Work Email */}
+              <div className="p-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Mail className="h-4 w-4 text-[#64748B]" />
+                    <span className="text-[12px] font-bold text-[#0F172A]">Work Email</span>
+                  </div>
+                  {enrichmentResult?.workEmail?.verified ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Verified ✅
+                    </span>
+                  ) : enrichmentResult?.workEmail?.status === 'INVALID' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                      Invalid ❌
+                    </span>
+                  ) : enrichmentResult?.workEmail?.status === 'NOT_FOUND' ? (
+                    <span className="text-[11px] text-[#94A3B8]">Not found</span>
+                  ) : (
+                    <span className="text-[11px] text-[#94A3B8]">Ready to enrich</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[12.5px] min-h-[30px]">
+                  <span className="font-mono text-[#0F172A] truncate">
+                    {enrichmentResult?.workEmail?.value ||
+                      (!enrichmentResult && lead.contact?.email) ||
+                      (enrichmentResult?.workEmail?.status === 'INVALID'
+                        ? 'Invalid email (failed verification)'
+                        : 'Not available')}
+                  </span>
+                  {(enrichmentResult?.workEmail?.value || (!enrichmentResult && lead.contact?.email)) && (
+                    <button
+                      onClick={() => handleCopyField(enrichmentResult?.workEmail?.value || lead.contact?.email || '', 'workEmail')}
+                      className="p-1.5 text-[#64748B] hover:text-[#0F172A] rounded transition-colors cursor-pointer"
+                      title="Copy Work Email"
+                    >
+                      {copiedWorkEmail ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                </div>
+
+                {enrichmentResult?.workEmail?.provider && (
+                  <div className="flex items-center gap-1.5 text-[10.5px] text-[#64748B] pt-1.5 border-t border-[#E2E8F0]">
+                    <span>Provider:</span>
+                    <span className="font-semibold text-slate-800 uppercase">{enrichmentResult.workEmail.provider}</span>
+                    {enrichmentResult.workEmail.confidence && (
+                      <span className="text-[#94A3B8]">• {Math.round(enrichmentResult.workEmail.confidence * 100)}% confidence</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Personal Email */}
+              <div className="p-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Mail className="h-4 w-4 text-[#64748B]" />
+                    <span className="text-[12px] font-bold text-[#0F172A]">Personal Email</span>
+                  </div>
+                  {enrichmentResult?.personalEmail?.verified ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Verified ✅
+                    </span>
+                  ) : enrichmentResult?.personalEmail?.status === 'INVALID' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                      Invalid ❌
+                    </span>
+                  ) : enrichmentResult?.personalEmail?.status === 'NOT_FOUND' ? (
+                    <span className="text-[11px] text-[#94A3B8]">Not found</span>
+                  ) : (
+                    <span className="text-[11px] text-[#94A3B8]">Ready to enrich</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[12.5px] min-h-[30px]">
+                  <span className="font-mono text-[#0F172A] truncate">
+                    {enrichmentResult?.personalEmail?.value ||
+                      (enrichmentResult?.personalEmail?.status === 'INVALID'
+                        ? 'Invalid email (failed verification)'
+                        : 'Not available')}
+                  </span>
+                  {enrichmentResult?.personalEmail?.value && (
+                    <button
+                      onClick={() => handleCopyField(enrichmentResult.personalEmail?.value || '', 'personalEmail')}
+                      className="p-1.5 text-[#64748B] hover:text-[#0F172A] rounded transition-colors cursor-pointer"
+                      title="Copy Personal Email"
+                    >
+                      {copiedPersonalEmail ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                </div>
+
+                {enrichmentResult?.personalEmail?.provider && (
+                  <div className="flex items-center gap-1.5 text-[10.5px] text-[#64748B] pt-1.5 border-t border-[#E2E8F0]">
+                    <span>Provider:</span>
+                    <span className="font-semibold text-slate-800 uppercase">{enrichmentResult.personalEmail.provider}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Direct Phone */}
+              <div className="p-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Phone className="h-4 w-4 text-[#64748B]" />
+                    <span className="text-[12px] font-bold text-[#0F172A]">Direct Phone</span>
+                  </div>
+                  {enrichmentResult?.phone?.verified ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Verified ✅
+                    </span>
+                  ) : enrichmentResult?.phone?.status === 'INVALID' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                      Invalid ❌
+                    </span>
+                  ) : enrichmentResult?.phone?.status === 'NOT_FOUND' ? (
+                    <span className="text-[11px] text-[#94A3B8]">Not found</span>
+                  ) : (
+                    <span className="text-[11px] text-[#94A3B8]">Ready to enrich</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[12.5px] min-h-[30px]">
+                  <span className="font-mono text-[#0F172A] truncate">
+                    {enrichmentResult?.phone?.value ||
+                      (!enrichmentResult && lead.contact?.phone) ||
+                      (enrichmentResult?.phone?.status === 'INVALID'
+                        ? 'Invalid phone (failed verification)'
+                        : 'Not available')}
+                  </span>
+                  {(enrichmentResult?.phone?.value || (!enrichmentResult && lead.contact?.phone)) && (
+                    <button
+                      onClick={() => handleCopyField(enrichmentResult?.phone?.value || lead.contact?.phone || '', 'phone')}
+                      className="p-1.5 text-[#64748B] hover:text-[#0F172A] rounded transition-colors cursor-pointer"
+                      title="Copy Phone"
+                    >
+                      {copiedEnrichPhone ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                </div>
+
+                {enrichmentResult?.phone?.provider && (
+                  <div className="flex items-center gap-1.5 text-[10.5px] text-[#64748B] pt-1.5 border-t border-[#E2E8F0]">
+                    <span>Provider:</span>
+                    <span className="font-semibold text-slate-800 uppercase">{enrichmentResult.phone.provider}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Performance & Cost Summary */}
+            {enrichmentResult && (
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-[11.5px] text-slate-600 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span>API Incurred Cost:</span>
+                  <span className="font-mono font-bold text-slate-900">${enrichmentResult.totalCost.toFixed(4)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>Retrieval Source:</span>
+                  <span className="font-semibold text-slate-800">
+                    {enrichmentResult.cached ? 'Database Cache (Free)' : 'Live Waterfall APIs'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Real Outreach Preview & Live Execution Modal */}

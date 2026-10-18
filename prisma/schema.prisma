@@ -741,4 +741,41 @@ model DomainHealthSnapshot {
   @@index([checkedAt])
 }
 
+model EnrichmentRequest {
+  id        String            @id @default(cuid())
+  dedupKey  String
+  firstName String?
+  lastName  String?
+  domain    String?
+  fields    String[]          @default([])
+  status    String            @default("COMPLETED")
+  createdAt DateTime          @default(now())
+
+  result    EnrichmentResult?
+
+  @@index([dedupKey])
+  @@index([createdAt])
+}
+
+model EnrichmentResult {
+  id                    String            @id @default(cuid())
+  requestId             String            @unique
+  request               EnrichmentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  dedupKey              String?
+  workEmail             String?
+  workEmailProvider     String?
+  personalEmail         String?
+  personalEmailProvider String?
+  phone                 String?
+  phoneProvider         String?
+  totalCost             Float             @default(0.0)
+  provenance            Json?
+  createdAt             DateTime          @default(now())
+  expiresAt             DateTime
+
+  @@index([dedupKey])
+  @@index([expiresAt])
+}
+
+
 

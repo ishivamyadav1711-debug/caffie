@@ -14,9 +14,10 @@ export interface FieldEnrichmentResult {
   value: string | null;
   provider: string | null;
   confidence?: number | null;
-  status: "ROUTED" | "FOUND" | "NOT_FOUND" | "SKIPPED" | "FAILED";
+  status: "ROUTED" | "FOUND" | "NOT_FOUND" | "SKIPPED" | "FAILED" | "INVALID";
   type?: "GENERIC" | "SPECIFIC" | "PERSONAL" | "MOBILE" | null;
   reason?: string;
+  verified?: boolean;
 }
 
 export interface ProviderEmailResult {

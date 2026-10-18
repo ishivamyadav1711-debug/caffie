@@ -63,7 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'website-audit', label: 'Website Audit', icon: Globe2 },
         { id: 'demo-websites', label: 'Website Demos', icon: MonitorPlay },
         { id: 'ai-messages', label: 'AI Outreach', icon: Sparkles },
-        { id: 'enrich', label: 'Enrich Contact', icon: UserCheck, badge: 'New' },
       ],
     },
     {

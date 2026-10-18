@@ -1,5 +1,6 @@
 import dns from 'dns';
 import { extractDomain } from '@/utils/urlUtils';
+import { prisma } from '@/lib/prisma';
 import {
   EnrichmentInput,
   EnrichmentOutput,
@@ -13,6 +14,7 @@ import { tombaFindPersonEmail, tombaFindDomainEmail } from './tomba';
 import { icypeasFindPhone } from './icypeas';
 import { leadmagicFindPersonalEmail } from './leadmagic';
 import { enrichsoFindPersonalEmail, enrichsoFindPhone } from './enrichso';
+import { verifyEmail, verifyPhone } from './verify';
 
 // In-memory Layer 0 cache
 const enrichmentCache = new Map<string, EnrichmentOutput>();
@@ -37,8 +39,21 @@ function cleanDomain(val?: string | null): string | null {
 }
 
 /**
+ * Generates a normalized deduplication key for enrichment caching.
+ */
+export function generateDedupKey(
+  primaryId: string,
+  personId: string,
+  fields: EnrichmentField[]
+): string {
+  const normalizedPrimary = primaryId.toLowerCase().trim();
+  const normalizedPerson = personId ? personId.toLowerCase().trim() : 'company';
+  return `${normalizedPrimary}:${normalizedPerson}:${[...fields].sort().join(',')}`;
+}
+
+/**
  * LeadPilot Enrichment Engine
- * Phase 3: Work Email (Prospeo + Tomba), Personal Email (LeadMagic), Phone (Icypeas)
+ * Phase 4 & 5: DB Caching, Verification (ZeroBounce & Twilio), Waterfall with DB Persistence
  */
 export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentOutput> {
   // 1. Layer 0 Input Normalization
@@ -60,15 +75,90 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
   const requestedFields: EnrichmentField[] = rawFields.filter((f): f is EnrichmentField => validFields.includes(f));
   const activeFields: EnrichmentField[] = requestedFields.length > 0 ? requestedFields : validFields;
 
-  // 4. Cache Check (Layer 0 Cache)
+  // 4. Cache Check (Layer 0 Memory Cache & Database Caching)
   const primaryId = companyDomain || companyName!;
   const personId = [firstName, lastName].filter(Boolean).join('_');
   const cacheKey = `l0:${primaryId}:${personId}:${[...activeFields].sort().join(',')}`.toLowerCase();
+  const dedupKey = generateDedupKey(primaryId, personId, activeFields);
 
   if (enrichmentCache.has(cacheKey)) {
     const cachedEntry = enrichmentCache.get(cacheKey)!;
-    console.log('[Enrichment Cache Hit]:', cacheKey);
+    console.log('[Enrichment Memory Cache Hit]:', cacheKey);
     return { ...cachedEntry, cached: true };
+  }
+
+  // STEP 3.1: Database Check First
+  try {
+    const cachedResult = await prisma.enrichmentResult.findFirst({
+      where: {
+        dedupKey,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      include: {
+        request: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    if (cachedResult) {
+      console.log('[Enrichment DB Cache Hit]:', dedupKey);
+      const prov = (cachedResult.provenance as any) || {};
+
+      const workEmailRes: FieldEnrichmentResult | null = activeFields.includes('workEmail')
+        ? prov.workEmail || {
+            value: cachedResult.workEmail,
+            provider: cachedResult.workEmailProvider,
+            status: cachedResult.workEmail ? 'FOUND' : 'NOT_FOUND',
+            confidence: cachedResult.workEmail ? 0.9 : null,
+            verified: Boolean(cachedResult.workEmail),
+          }
+        : null;
+
+      const personalEmailRes: FieldEnrichmentResult | null = activeFields.includes('personalEmail')
+        ? prov.personalEmail || {
+            value: cachedResult.personalEmail,
+            provider: cachedResult.personalEmailProvider,
+            status: cachedResult.personalEmail ? 'FOUND' : 'NOT_FOUND',
+            confidence: cachedResult.personalEmail ? 0.9 : null,
+            verified: Boolean(cachedResult.personalEmail),
+          }
+        : null;
+
+      const phoneRes: FieldEnrichmentResult | null = activeFields.includes('phone')
+        ? prov.phone || {
+            value: cachedResult.phone,
+            provider: cachedResult.phoneProvider,
+            status: cachedResult.phone ? 'FOUND' : 'NOT_FOUND',
+            confidence: cachedResult.phone ? 0.85 : null,
+            verified: Boolean(cachedResult.phone),
+          }
+        : null;
+
+      const dbOutput: EnrichmentOutput = {
+        success: true,
+        workEmail: workEmailRes,
+        personalEmail: personalEmailRes,
+        phone: phoneRes,
+        cached: true,
+        totalCost: cachedResult.totalCost,
+        routing: prov.routing || {
+          requestedFields: activeFields,
+          primaryIdentifier: companyDomain ? 'domain' : 'company_name',
+          hasPersonName: Boolean(firstName),
+          domainMxValid: null,
+          plannedWaterfall: {},
+        },
+      };
+
+      enrichmentCache.set(cacheKey, dbOutput);
+      return dbOutput;
+    }
+  } catch (dbErr) {
+    console.warn('[Enrichment DB Cache Check Warning]:', dbErr);
   }
 
   console.log('[Enrichment Start]', {
@@ -197,6 +287,23 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         }
       }
     }
+
+    // Step 3.2: Verification Layer for Work Email
+    if (workEmail?.value) {
+      const isValid = await verifyEmail(workEmail.value);
+      if (!isValid) {
+        console.log('[Verification] Work email failed verification:', workEmail.value);
+        workEmail = {
+          ...workEmail,
+          status: 'INVALID',
+          value: null,
+          verified: false,
+          reason: 'Failed email verification',
+        };
+      } else {
+        workEmail.verified = true;
+      }
+    }
   }
 
   // --- PERSONAL EMAIL EXECUTION (Free Demo: Enrich.so, cost $0.00) ---
@@ -237,6 +344,23 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         reason: 'Requires first_name',
       };
     }
+
+    // Step 3.2: Verification Layer for Personal Email
+    if (personalEmail?.value) {
+      const isValid = await verifyEmail(personalEmail.value);
+      if (!isValid) {
+        console.log('[Verification] Personal email failed verification:', personalEmail.value);
+        personalEmail = {
+          ...personalEmail,
+          status: 'INVALID',
+          value: null,
+          verified: false,
+          reason: 'Failed email verification',
+        };
+      } else {
+        personalEmail.verified = true;
+      }
+    }
   }
 
   // --- PHONE EXECUTION (Free Demo: Enrich.so, cost $0.00) ---
@@ -276,6 +400,23 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         reason: 'Domain required',
       };
     }
+
+    // Step 3.2: Verification Layer for Phone
+    if (phone?.value) {
+      const isValid = await verifyPhone(phone.value, companyCountry || 'IN');
+      if (!isValid) {
+        console.log('[Verification] Phone failed verification:', phone.value);
+        phone = {
+          ...phone,
+          status: 'INVALID',
+          value: null,
+          verified: false,
+          reason: 'Failed phone verification',
+        };
+      } else {
+        phone.verified = true;
+      }
+    }
   }
 
   // 7. Layer 0 Routing Metadata & Output Assembly
@@ -299,11 +440,46 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
   };
 
   enrichmentCache.set(cacheKey, output);
+
+  // 8. DB Save (TTL: 90 days)
+  try {
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    await prisma.enrichmentRequest.create({
+      data: {
+        dedupKey,
+        firstName,
+        lastName,
+        domain: companyDomain,
+        fields: activeFields,
+        status: output.success ? 'COMPLETED' : 'FAILED',
+        result: {
+          create: {
+            dedupKey,
+            workEmail: workEmail?.value ?? null,
+            workEmailProvider: workEmail?.provider ?? null,
+            personalEmail: personalEmail?.value ?? null,
+            personalEmailProvider: personalEmail?.provider ?? null,
+            phone: phone?.value ?? null,
+            phoneProvider: phone?.provider ?? null,
+            totalCost: output.totalCost,
+            provenance: output as any,
+            expiresAt,
+          },
+        },
+      },
+    });
+    console.log('[Enrichment DB Saved]:', dedupKey);
+  } catch (dbErr) {
+    console.error('[Enrichment DB Save Error]:', dbErr);
+  }
+
   return output;
 }
 
 export * from './types';
+export * from './verify';
 export * from './prospeo';
 export * from './tomba';
 export * from './icypeas';
 export * from './leadmagic';
+
