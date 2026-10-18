@@ -96,7 +96,7 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
               success: true,
               data: {
                 found: true,
-                personalEmail: 'satya@microsoft.com',
+                personalEmail: 'satya.nadella@gmail.com',
               },
             }),
           };
@@ -106,11 +106,32 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
 
       const res = await enrichsoFindPersonalEmail('microsoft.com', 'Satya', 'Nadella', 'https://linkedin.com/in/satyanadella');
       expect(res).toEqual({
-        email: 'satya@microsoft.com',
+        email: 'satya.nadella@gmail.com',
         provider: 'enrich.so',
         type: 'PERSONAL',
         confidence: 0.9,
       });
+    });
+
+    it('rejects work email or corporate domain email for personal email', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('linkedin-to-personal-email')) {
+          return {
+            ok: true,
+            json: async () => ({
+              success: true,
+              data: {
+                found: true,
+                personalEmail: 'ritesh@oyorooms.com',
+              },
+            }),
+          };
+        }
+        return { ok: false };
+      });
+
+      const res = await enrichsoFindPersonalEmail('oyorooms.com', 'Ritesh', 'Agarwal', 'https://linkedin.com/in/riteshagar');
+      expect(res).toBeNull();
     });
 
     it('returns null when enrichsoFindPhone has no phone', async () => {

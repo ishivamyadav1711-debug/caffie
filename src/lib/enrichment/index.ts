@@ -18,7 +18,7 @@ import {
 import { tombaFindPersonEmail, tombaFindDomainEmail } from './tomba';
 import { icypeasFindPhone } from './icypeas';
 import { leadmagicFindPersonalEmail } from './leadmagic';
-import { enrichsoFindPersonalEmail, enrichsoFindWorkEmail, enrichsoFindPhone } from './enrichso';
+import { enrichsoFindPersonalEmail, enrichsoFindWorkEmail, enrichsoFindPhone, isPersonalEmail } from './enrichso';
 import { verifyEmail, verifyPhone } from './verify';
 
 // In-memory Layer 0 cache
@@ -127,6 +127,24 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
       console.log('[Enrichment DB Cache Hit]:', dedupKey);
       const prov = (cachedResult.provenance as any) || {};
 
+      // Sanitize cached phone to prevent stale mock number
+      let cachedPhone = cachedResult.phone;
+      let cachedPhoneProvider = cachedResult.phoneProvider;
+      if (cachedPhone && (cachedPhone.replace(/\D/g, '') === '14258828080' || cachedPhone.includes('425 882 8080'))) {
+        cachedPhone = null;
+        cachedPhoneProvider = null;
+      }
+
+      // Sanitize cached personal email to prevent corporate domain or duplicate work email
+      let cachedPersonalEmail = cachedResult.personalEmail;
+      let cachedPersonalProvider = cachedResult.personalEmailProvider;
+      if (cachedPersonalEmail) {
+        if (!isPersonalEmail(cachedPersonalEmail, companyDomain) || (cachedResult.workEmail && cachedPersonalEmail.toLowerCase() === cachedResult.workEmail.toLowerCase())) {
+          cachedPersonalEmail = null;
+          cachedPersonalProvider = null;
+        }
+      }
+
       const workEmailRes: FieldEnrichmentResult | null = activeFields.includes('workEmail')
         ? prov.workEmail || {
             value: cachedResult.workEmail,
@@ -138,22 +156,22 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         : null;
 
       const personalEmailRes: FieldEnrichmentResult | null = activeFields.includes('personalEmail')
-        ? prov.personalEmail || {
-            value: cachedResult.personalEmail,
-            provider: cachedResult.personalEmailProvider,
-            status: cachedResult.personalEmail ? 'FOUND' : 'NOT_FOUND',
-            confidence: cachedResult.personalEmail ? 0.9 : null,
-            verified: Boolean(cachedResult.personalEmail),
+        ? (cachedPersonalEmail ? prov.personalEmail : null) || {
+            value: cachedPersonalEmail,
+            provider: cachedPersonalProvider,
+            status: cachedPersonalEmail ? 'FOUND' : 'NOT_FOUND',
+            confidence: cachedPersonalEmail ? 0.9 : null,
+            verified: Boolean(cachedPersonalEmail),
           }
         : null;
 
       const phoneRes: FieldEnrichmentResult | null = activeFields.includes('phone')
-        ? prov.phone || {
-            value: cachedResult.phone,
-            provider: cachedResult.phoneProvider,
-            status: cachedResult.phone ? 'FOUND' : 'NOT_FOUND',
-            confidence: cachedResult.phone ? 0.85 : null,
-            verified: Boolean(cachedResult.phone),
+        ? (cachedPhone ? prov.phone : null) || {
+            value: cachedPhone,
+            provider: cachedPhoneProvider,
+            status: cachedPhone ? 'FOUND' : 'NOT_FOUND',
+            confidence: cachedPhone ? 0.85 : null,
+            verified: Boolean(cachedPhone),
           }
         : null;
 
@@ -389,13 +407,25 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
       console.log(`enrich.so result:`, enrichRes);
 
       if (enrichRes?.email) {
-        personalEmail = {
-          value: enrichRes.email,
-          provider: 'enrich.so',
-          confidence: 0.9,
-          type: 'PERSONAL',
-          status: 'FOUND',
-        };
+        if (!isPersonalEmail(enrichRes.email, companyDomain) || (workEmail?.value && enrichRes.email.toLowerCase() === workEmail.value.toLowerCase())) {
+          console.log(`[Enrichment] Filtered non-personal or duplicate work email from personalEmail: ${enrichRes.email}`);
+          personalEmail = {
+            value: null,
+            provider: null,
+            confidence: null,
+            type: 'PERSONAL',
+            status: 'NOT_FOUND',
+            reason: 'Not a personal email',
+          };
+        } else {
+          personalEmail = {
+            value: enrichRes.email,
+            provider: 'enrich.so',
+            confidence: 0.9,
+            type: 'PERSONAL',
+            status: 'FOUND',
+          };
+        }
       } else {
         if (!firstName) {
           skippedFields.push({ field: 'personalEmail', reason: 'Personal email enrichment requires first_name' });

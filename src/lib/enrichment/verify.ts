@@ -36,6 +36,17 @@ export async function verifyEmail(email?: string | null): Promise<boolean> {
   }
 }
 
+function normalizeCountryCode(country?: string | null): string {
+  if (!country) return 'IN';
+  const c = country.trim().toUpperCase();
+  if (c.length === 2) return c;
+  if (c === 'INDIA') return 'IN';
+  if (c === 'UNITED STATES' || c === 'USA') return 'US';
+  if (c === 'CANADA') return 'CA';
+  if (c === 'UNITED KINGDOM' || c === 'UK') return 'GB';
+  return 'IN';
+}
+
 /**
  * Verifies a phone number using the Twilio Lookup adapter from LeadPilot.
  * Falls back to LibPhoneNumber syntax validation if Twilio is not configured.
@@ -49,16 +60,18 @@ export async function verifyPhone(phone?: string | null, defaultCountry: string 
   const cleaned = phone.trim();
   if (!cleaned) return false;
 
+  const countryCode = normalizeCountryCode(defaultCountry);
+
   try {
     if (twilioLookupProvider.isConfigured()) {
-      const result = await twilioLookupProvider.verifyPhone(cleaned, defaultCountry);
+      const result = await twilioLookupProvider.verifyPhone(cleaned, countryCode);
       if (result.providerStatus === 'READY' || result.cached) {
         return Boolean(result.isValid);
       }
     }
 
     // Fall back to phone syntax provider if Twilio is not configured
-    const syntaxResult = await phoneSyntaxProvider.verifyPhone(cleaned, defaultCountry);
+    const syntaxResult = await phoneSyntaxProvider.verifyPhone(cleaned, countryCode);
     return Boolean(syntaxResult.isValid);
   } catch (error) {
     console.error('[Verification] Phone verification failed:', error);
