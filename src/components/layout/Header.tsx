@@ -65,8 +65,8 @@ const tabTitles: Record<NavTab, { title: string; subtitle: string }> = {
     subtitle: 'Guides and resources for getting the most from LeadPilot.',
   },
   enrich: {
-    title: 'Enrich Contact',
-    subtitle: 'Test the multi-provider waterfall contact enrichment engine.',
+    title: 'Contact Enrichment Engine',
+    subtitle: 'Multi-provider waterfall enrichment for verified work emails, personal emails, and direct phone numbers.',
   },
 };
 

@@ -62,10 +62,10 @@ export default function EnrichPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-2xs">
             <div>
               <h1 className="text-[18px] font-bold text-[#0F172A] tracking-tight">
-                Enrich Contact (Isolated Sandbox)
+                Contact Enrichment Engine
               </h1>
               <p className="text-[12.5px] text-[#64748B] mt-0.5">
-                Test real-time Person Search and Domain Search waterfalls using Prospeo and Tomba.
+                Multi-provider waterfall enrichment for verified work emails, personal emails, and direct phone numbers.
               </p>
             </div>
             <div className="flex items-center gap-2">

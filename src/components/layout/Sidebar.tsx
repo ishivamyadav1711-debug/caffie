@@ -15,7 +15,8 @@ import {
   Compass,
   Mail,
   Server,
-  UserCheck
+  UserCheck,
+  Wand2
 } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { NavTab } from '@/types';
@@ -53,7 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: 'MAIN',
       items: [
         { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'find-leads', label: 'Find Leads', icon: Search },
+        { id: 'enrich', label: 'Enrichment', icon: Wand2 },
         { id: 'leads', label: 'Leads', icon: Users, badge: '1.2k' },
       ],
     },
