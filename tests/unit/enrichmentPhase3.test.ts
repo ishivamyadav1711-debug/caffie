@@ -175,6 +175,39 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
       expect(result.routing.plannedWaterfall.personalEmail).toEqual(['enrich.so']);
     });
 
+    it('sets personalEmail to NOT_FOUND when Enrich.so returns corporate domain email', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('linkedin-to-personal-email')) {
+          return {
+            ok: true,
+            json: async () => ({
+              success: true,
+              data: { found: true, personalEmail: 'ritesh@oyorooms.com' },
+            }),
+          };
+        }
+        return { ok: false };
+      });
+
+      const result = await enrichContact({
+        company_domain: 'oyorooms.com',
+        first_name: 'Ritesh',
+        last_name: 'Agarwal',
+        linkedin_url: 'https://linkedin.com/in/riteshagar',
+        fields: ['personalEmail'],
+      });
+
+      expect(result.personalEmail).toEqual({
+        value: null,
+        provider: null,
+        confidence: null,
+        type: 'PERSONAL',
+        status: 'NOT_FOUND',
+        reason: 'No personal email found',
+      });
+      expect(result.totalCost).toBe(0.00);
+    });
+
     it('returns NOT_FOUND when Enrich.so returns no phone', async () => {
       const result = await enrichContact({
         company_domain: 'microsoft.com',

@@ -108,14 +108,16 @@ export async function prospeoEnrichPerson(
     }
 
     let phoneResult: ProviderPhoneResult | null = null;
-    const rawPhone = person?.mobile?.mobile;
-    if (rawPhone && typeof rawPhone === 'string' && rawPhone.trim().length > 0) {
-      phoneResult = {
-        phone: rawPhone.trim(),
-        provider: 'prospeo',
-        type: 'MOBILE',
-        confidence: person?.mobile?.status === 'VERIFIED' ? 0.95 : 0.85,
-      };
+    if (enrichMobile) {
+      const rawPhone = person?.mobile?.mobile;
+      if (rawPhone && typeof rawPhone === 'string' && rawPhone.trim().length > 0) {
+        phoneResult = {
+          phone: rawPhone.trim(),
+          provider: 'prospeo',
+          type: 'MOBILE',
+          confidence: person?.mobile?.status === 'VERIFIED' ? 0.95 : 0.85,
+        };
+      }
     }
 
     const linkedinUrl = person?.linkedin_url || null;

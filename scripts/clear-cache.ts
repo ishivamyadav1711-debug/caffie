@@ -20,9 +20,12 @@ async function clearDatabase(dbUrl: string, name: string) {
       console.log(`  - dedupKey: ${r.dedupKey} | phone: ${r.phone} | work: ${r.workEmail} | personal: ${r.personalEmail}`);
     }
 
+    await prisma.$executeRawUnsafe(`DELETE FROM "EnrichmentResult" WHERE "personalEmail" LIKE '%@oyorooms.com%';`);
+    await prisma.$executeRawUnsafe(`DELETE FROM "EnrichmentResult" WHERE "dedupKey" LIKE '%oyorooms.com%';`);
+    await prisma.$executeRawUnsafe(`DELETE FROM "EnrichmentRequest" WHERE "domain" = 'oyorooms.com';`);
     await prisma.$executeRawUnsafe(`TRUNCATE TABLE "EnrichmentResult" CASCADE;`);
     await prisma.$executeRawUnsafe(`TRUNCATE TABLE "EnrichmentRequest" CASCADE;`);
-    console.log(`[${name}] Successfully truncated EnrichmentResult and EnrichmentRequest with CASCADE.`);
+    console.log(`[${name}] Successfully purged all bad cache and truncated tables with CASCADE.`);
   } catch (err) {
     console.error(`[${name}] Error clearing cache:`, err);
   } finally {

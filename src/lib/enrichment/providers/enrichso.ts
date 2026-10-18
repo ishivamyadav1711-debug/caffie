@@ -1,43 +1,19 @@
 import { ProviderEmailResult, ProviderPhoneResult, ProviderPersonalEmailResult } from '../types';
 import { normalizeEmail } from '@/utils/emailUtils';
 
-export const PUBLIC_PERSONAL_DOMAINS = new Set([
+export const ALLOWED_PUBLIC_DOMAINS = [
   'gmail.com',
-  'googlemail.com',
   'yahoo.com',
-  'yahoo.co.in',
-  'yahoo.co.uk',
-  'yahoo.ca',
-  'yahoo.fr',
-  'yahoo.de',
-  'ymail.com',
-  'rocketmail.com',
-  'outlook.com',
   'hotmail.com',
-  'live.com',
-  'msn.com',
+  'outlook.com',
   'icloud.com',
-  'me.com',
-  'mac.com',
-  'aol.com',
   'protonmail.com',
-  'proton.me',
-  'zoho.com',
-  'yandex.com',
-  'mail.com',
-  'gmx.com',
-  'gmx.net',
-  'fastmail.com',
-  'tutanota.com',
-  'tuta.com',
-  'rediffmail.com',
-]);
+];
 
 /**
- * Validates that an email is genuinely a personal email (gmail, yahoo, outlook, etc.)
- * and NOT a corporate/work email.
- * - If email ends with @${domain} or matches corporate domain, returns false.
- * - If domain is not in the recognized public personal email domains, returns false.
+ * Validates that an email is genuinely a personal email from an allowed public domain.
+ * - Rejects any email that ends with the company_domain (e.g. @oyorooms.com) or matches corporate domain.
+ * - Only permits emails ending with one of the allowed public domains.
  */
 export function isPersonalEmail(email: string, corporateDomain?: string | null): boolean {
   if (!email || typeof email !== 'string' || !email.includes('@')) return false;
@@ -45,16 +21,23 @@ export function isPersonalEmail(email: string, corporateDomain?: string | null):
   if (parts.length !== 2) return false;
   const emailDomain = parts[1].trim();
 
-  // 1. Strict check: If the email ends with @${domain} or domain part matches corporate domain, reject it
+  // 1. Strict check: If email ends with @${company_domain} or matches corporate domain, reject it
   if (corporateDomain) {
     const cleanCorp = corporateDomain.toLowerCase().trim().replace(/^www\./, '');
-    if (emailDomain === cleanCorp || emailDomain.endsWith(`.${cleanCorp}`) || cleanCorp.endsWith(`.${emailDomain}`)) {
+    if (
+      emailDomain === cleanCorp ||
+      emailDomain.endsWith(`.${cleanCorp}`) ||
+      cleanCorp.endsWith(`.${emailDomain}`) ||
+      email.toLowerCase().endsWith(`@${cleanCorp}`)
+    ) {
       return false;
     }
   }
 
-  // 2. Strict check: Must belong to a recognized public personal provider
-  return PUBLIC_PERSONAL_DOMAINS.has(emailDomain);
+  // 2. Only return true if it ends with one of the allowed public domains
+  return ALLOWED_PUBLIC_DOMAINS.some(
+    (allowed) => emailDomain === allowed || emailDomain.endsWith(`.${allowed}`)
+  );
 }
 
 /**

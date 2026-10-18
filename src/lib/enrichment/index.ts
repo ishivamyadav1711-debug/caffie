@@ -237,7 +237,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
       companyDomain,
       firstName,
       lastName,
-      activeFields.includes('phone')
+      false
     );
     console.log('[Prospeo] Person Enrich result:', prospeoPerson);
   }
@@ -396,13 +396,12 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     if (companyDomain) {
       plannedWaterfall.personalEmail = ['enrich.so'];
 
-      const targetLinkedinUrl = linkedinUrl || prospeoPerson?.linkedinUrl || null;
-      console.log(`Trying enrich.so for domain: ${companyDomain}, linkedinUrl: ${targetLinkedinUrl}`);
+      console.log(`Trying enrich.so for domain: ${companyDomain}, linkedinUrl: ${linkedinUrl}`);
       const enrichRes = await enrichsoFindPersonalEmail(
         companyDomain,
         firstName,
         lastName,
-        targetLinkedinUrl
+        linkedinUrl || null
       );
       console.log(`enrich.so result:`, enrichRes);
 
