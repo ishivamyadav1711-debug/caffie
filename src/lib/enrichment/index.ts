@@ -9,7 +9,12 @@ import {
   Layer0RoutingMetadata,
   PlannedWaterfall,
 } from './types';
-import { prospeoFindPersonEmail, prospeoFindDomainEmail } from './prospeo';
+import {
+  prospeoFindPersonEmail,
+  prospeoFindDomainEmail,
+  prospeoEnrichPerson,
+  ProspeoPersonEnrichResult,
+} from './prospeo';
 import { tombaFindPersonEmail, tombaFindDomainEmail } from './tomba';
 import { icypeasFindPhone } from './icypeas';
 import { leadmagicFindPersonalEmail } from './leadmagic';
@@ -83,8 +88,15 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
 
   if (enrichmentCache.has(cacheKey)) {
     const cachedEntry = enrichmentCache.get(cacheKey)!;
-    console.log('[Enrichment Memory Cache Hit]:', cacheKey);
-    return { ...cachedEntry, cached: true };
+    const hasAnyFound = Boolean(
+      cachedEntry.workEmail?.value ||
+      cachedEntry.personalEmail?.value ||
+      cachedEntry.phone?.value
+    );
+    if (hasAnyFound) {
+      console.log('[Enrichment Memory Cache Hit]:', cacheKey);
+      return { ...cachedEntry, cached: true };
+    }
   }
 
   // STEP 3.1: Database Check First
@@ -104,7 +116,13 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
       },
     });
 
-    if (cachedResult) {
+    const hasAnyFound = Boolean(
+      cachedResult?.workEmail ||
+      cachedResult?.personalEmail ||
+      cachedResult?.phone
+    );
+
+    if (cachedResult && hasAnyFound) {
       console.log('[Enrichment DB Cache Hit]:', dedupKey);
       const prov = (cachedResult.provenance as any) || {};
 
@@ -191,10 +209,23 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
   let phone: FieldEnrichmentResult | null = null;
   let totalCost = 0;
 
+  // Mode A Pre-Fetch: If domain and firstName are provided, execute Prospeo Person Enrichment
+  let prospeoPerson: ProspeoPersonEnrichResult | null = null;
+  if (companyDomain && firstName) {
+    totalCost += 0.01;
+    console.log(`[Prospeo] Enriching person for domain: ${companyDomain}, name: ${firstName} ${lastName || ''}`);
+    prospeoPerson = await prospeoEnrichPerson(
+      companyDomain,
+      firstName,
+      lastName,
+      activeFields.includes('phone')
+    );
+    console.log('[Prospeo] Person Enrich result:', prospeoPerson);
+  }
+
   // --- WORK EMAIL EXECUTION (Prospeo -> Tomba -> Enrich.so) ---
   if (activeFields.includes('workEmail')) {
     if (!companyDomain) {
-      // Domain required for real API work email search
       plannedWaterfall.workEmail = ['skipped_no_domain'];
       workEmail = {
         value: null,
@@ -205,22 +236,17 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         reason: 'Domain required',
       };
     } else if (firstName) {
-      // Mode A (Person Search): first_name is provided
+      // Mode A (Person Search)
       plannedWaterfall.workEmail = ['prospeo', 'tomba', 'enrich.so'];
 
-      // Step 1: Try Prospeo person search first ($0.01)
-      totalCost += 0.01;
-      console.log(`Trying prospeo for domain: ${companyDomain}`);
-      const prospeoRes = await prospeoFindPersonEmail(companyDomain, firstName, lastName);
-      console.log(`prospeo result:`, prospeoRes);
-
-      if (prospeoRes?.email) {
+      if (prospeoPerson?.email) {
         workEmail = {
-          value: prospeoRes.email,
+          value: prospeoPerson.email.email,
           provider: 'prospeo',
-          confidence: prospeoRes.confidence,
+          confidence: prospeoPerson.email.confidence,
           type: 'SPECIFIC',
           status: 'FOUND',
+          verified: true, // Prospeo only_verified_email with SMTP validation
         };
       } else {
         // Step 2: Try Tomba person search if Prospeo fails ($0.0078)
@@ -252,7 +278,6 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
               status: 'FOUND',
             };
           } else {
-            // All three failed
             workEmail = {
               value: null,
               provider: null,
@@ -312,7 +337,6 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
               status: 'FOUND',
             };
           } else {
-            // All three failed
             workEmail = {
               value: null,
               provider: null,
@@ -328,18 +352,22 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
 
     // Step 3.2: Verification Layer for Work Email
     if (workEmail?.value) {
-      const isValid = await verifyEmail(workEmail.value);
-      if (!isValid) {
-        console.log('[Verification] Work email failed verification:', workEmail.value);
-        workEmail = {
-          ...workEmail,
-          status: 'INVALID',
-          value: null,
-          verified: false,
-          reason: 'Failed email verification',
-        };
-      } else {
+      if (workEmail.provider === 'prospeo') {
         workEmail.verified = true;
+      } else {
+        const isValid = await verifyEmail(workEmail.value);
+        if (!isValid) {
+          console.log('[Verification] Work email failed verification:', workEmail.value);
+          workEmail = {
+            ...workEmail,
+            status: 'INVALID',
+            value: null,
+            verified: false,
+            reason: 'Failed email verification',
+          };
+        } else {
+          workEmail.verified = true;
+        }
       }
     }
   }
@@ -350,7 +378,12 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
       plannedWaterfall.personalEmail = ['enrich.so'];
 
       console.log(`Trying enrich.so for domain: ${companyDomain}`);
-      const enrichRes = await enrichsoFindPersonalEmail(companyDomain, firstName, lastName);
+      const enrichRes = await enrichsoFindPersonalEmail(
+        companyDomain,
+        firstName,
+        lastName,
+        prospeoPerson?.linkedinUrl || null
+      );
       console.log(`enrich.so result:`, enrichRes);
 
       if (enrichRes?.email) {
@@ -413,32 +446,54 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     }
   }
 
-  // --- PHONE EXECUTION (Free Demo: Enrich.so, cost $0.00) ---
+  // --- PHONE EXECUTION (Prospeo -> Icypeas -> Enrich.so) ---
   if (activeFields.includes('phone')) {
-    if (companyDomain) {
-      plannedWaterfall.phone = ['enrich.so'];
+    plannedWaterfall.phone = ['prospeo', 'icypeas', 'enrich.so'];
 
-      console.log(`Trying enrich.so for domain: ${companyDomain}`);
-      const enrichRes = await enrichsoFindPhone(companyDomain, firstName, lastName);
-      console.log(`enrich.so result:`, enrichRes);
+    if (prospeoPerson?.phone?.phone) {
+      phone = {
+        value: prospeoPerson.phone.phone,
+        provider: 'prospeo',
+        confidence: prospeoPerson.phone.confidence || 0.95,
+        type: 'MOBILE',
+        status: 'FOUND',
+      };
+    } else if (companyDomain) {
+      console.log(`Trying icypeas for domain: ${companyDomain}`);
+      const icypeasRes = await icypeasFindPhone(companyDomain, firstName, lastName, companyCountry);
+      console.log(`icypeas result:`, icypeasRes);
 
-      if (enrichRes?.phone) {
+      if (icypeasRes?.phone) {
         phone = {
-          value: enrichRes.phone,
-          provider: 'enrich.so',
+          value: icypeasRes.phone,
+          provider: 'icypeas',
           confidence: 0.85,
           type: 'MOBILE',
           status: 'FOUND',
         };
       } else {
-        phone = {
-          value: null,
-          provider: null,
-          confidence: null,
-          type: 'MOBILE',
-          status: 'NOT_FOUND',
-          reason: 'No direct phone found',
-        };
+        console.log(`Trying enrich.so for phone: ${companyDomain}`);
+        const enrichRes = await enrichsoFindPhone(companyDomain, firstName, lastName);
+        console.log(`enrich.so phone result:`, enrichRes);
+
+        if (enrichRes?.phone) {
+          phone = {
+            value: enrichRes.phone,
+            provider: 'enrich.so',
+            confidence: 0.85,
+            type: 'MOBILE',
+            status: 'FOUND',
+          };
+        } else {
+          phone = {
+            value: null,
+            provider: null,
+            confidence: null,
+            type: 'MOBILE',
+            status: 'NOT_FOUND',
+            reason: 'No direct phone found',
+          };
+        }
       }
     } else {
       phone = {
@@ -491,9 +546,16 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
 
   enrichmentCache.set(cacheKey, output);
 
-  // 8. DB Save (TTL: 90 days)
+  // 8. DB Save (TTL: 90 days if contacts found, 5 mins for negative results)
   try {
-    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    const hasAnyFound = Boolean(
+      workEmail?.value || personalEmail?.value || phone?.value
+    );
+    const ttlMs = hasAnyFound
+      ? 90 * 24 * 60 * 60 * 1000 // 90 days for found contacts
+      : 5 * 60 * 1000; // 5 minutes for un-found / negative results
+    const expiresAt = new Date(Date.now() + ttlMs);
+
     await prisma.enrichmentRequest.create({
       data: {
         dedupKey,
@@ -518,7 +580,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
         },
       },
     });
-    console.log('[Enrichment DB Saved]:', dedupKey);
+    console.log('[Enrichment DB Saved]:', dedupKey, 'found:', hasAnyFound);
   } catch (dbErr) {
     console.error('[Enrichment DB Save Error]:', dbErr);
   }

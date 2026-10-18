@@ -2,13 +2,14 @@ import { ProviderEmailResult, ProviderPhoneResult, ProviderPersonalEmailResult }
 import { normalizeEmail } from '@/utils/emailUtils';
 
 /**
- * Searches for personal email via Enrich.so API.
+ * Searches for personal email via Enrich.so API (v3 linkedin-to-personal-email).
  * Strictly returns only real API data. Returns null if not found.
  */
 export async function enrichsoFindPersonalEmail(
   domain?: string | null,
   firstName?: string | null,
-  lastName?: string | null
+  lastName?: string | null,
+  linkedinUrl?: string | null
 ): Promise<ProviderPersonalEmailResult | null> {
   const apiKey = process.env.ENRICHSO_API_KEY;
   if (!apiKey) {
@@ -16,63 +17,40 @@ export async function enrichsoFindPersonalEmail(
     return null;
   }
 
-  if (!domain || !firstName) {
+  // dev.enrich.so personal email requires linkedinUrl
+  if (!linkedinUrl) {
     return null;
   }
 
   try {
-    // 1. Primary endpoint: POST /api/v1/enrich/email
-    const res = await fetch("https://dev.enrich.so/api/v1/enrich/email", {
+    const res = await fetch("https://dev.enrich.so/api/v3/linkedin-to-personal-email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
+        "Accept": "application/json",
       },
-      body: JSON.stringify({
-        domain,
-        first_name: firstName,
-        last_name: lastName || "",
-      }),
+      body: JSON.stringify({ linkedinUrl }),
       signal: AbortSignal.timeout(8000),
     });
+
+    if (!res.ok) {
+      console.warn(`[Enrich.so] Personal email HTTP ${res.status} for linkedinUrl: ${linkedinUrl}`);
+      return null;
+    }
 
     const data = await res.json().catch(() => null);
     console.log("RAW ENRICHSO PERSONAL EMAIL RESPONSE:", JSON.stringify(data, null, 2));
 
-    const rawEmail = data?.email || data?.personal_email || data?.data?.email || data?.data?.personal_email;
-    const email = normalizeEmail(rawEmail);
-    if (email) {
-      return { email, provider: "enrich.so", type: "PERSONAL", confidence: 0.9 };
-    }
-
-    // 2. Active Fallback Endpoint: POST /api/v3/email-finder
-    if (res.status === 404 || !data?.success) {
-      console.log("[Enrich.so] Falling back to /api/v3/email-finder for personal email");
-      const v3Res = await fetch("https://dev.enrich.so/api/v3/email-finder", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({
-          firstName,
-          lastName: lastName || "",
-          domain,
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-
-      if (v3Res.ok) {
-        const v3Data = await v3Res.json().catch(() => null);
-        console.log("RAW ENRICHSO V3 PERSONAL EMAIL RESPONSE:", JSON.stringify(v3Data, null, 2));
-
-        if (v3Data?.data?.found === true) {
-          const candidate = normalizeEmail(v3Data.data.email || v3Data.data.personal_email || v3Data.email);
-          if (candidate) {
-            return { email: candidate, provider: "enrich.so", type: "PERSONAL", confidence: 0.9 };
-          }
-        }
+    if (data?.success && data?.data?.found === true && data.data.personalEmail) {
+      const email = normalizeEmail(data.data.personalEmail);
+      if (email) {
+        return {
+          email,
+          provider: "enrich.so",
+          type: "PERSONAL",
+          confidence: 0.9,
+        };
       }
     }
 
@@ -127,8 +105,8 @@ export async function enrichsoFindWorkEmail(
     const data = await res.json().catch(() => null);
     console.log("RAW ENRICHSO WORK EMAIL RESPONSE:", JSON.stringify(data, null, 2));
 
-    if (data?.data?.found === true) {
-      const email = normalizeEmail(data.data.email || data.email);
+    if (data?.data?.found === true && data.data.email) {
+      const email = normalizeEmail(data.data.email);
       if (email) {
         return {
           email,
@@ -161,42 +139,7 @@ export async function enrichsoFindPhone(
     return null;
   }
 
-  if (!domain) {
-    return null;
-  }
-
-  try {
-    const res = await fetch("https://dev.enrich.so/api/v1/enrich/phone", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        domain,
-        first_name: firstName || "",
-        last_name: lastName || "",
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-
-    const data = await res.json().catch(() => null);
-    console.log("RAW ENRICHSO PHONE RESPONSE:", JSON.stringify(data, null, 2));
-
-    const rawPhone =
-      data?.phone ||
-      data?.mobile ||
-      data?.direct_phone ||
-      data?.data?.phone ||
-      data?.data?.mobile;
-
-    if (rawPhone && typeof rawPhone === "string" && rawPhone.trim().length > 0) {
-      return { phone: rawPhone.trim(), provider: "enrich.so", type: "MOBILE" };
-    }
-
-    return null;
-  } catch (error) {
-    console.error("Enrich.so Phone Error:", error);
-    return null;
-  }
+  // Enrich.so does not provide an active free phone lookup endpoint.
+  // Return null safely without guessing or returning fake numbers.
+  return null;
 }

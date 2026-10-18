@@ -1,5 +1,5 @@
 import { normalizeEmail } from '@/utils/emailUtils';
-import { ProviderEmailResult } from './types';
+import { ProviderEmailResult, ProviderPhoneResult } from './types';
 
 const GENERIC_PREFIXES = [
   'info@',
@@ -35,15 +35,25 @@ export function selectBestGenericEmail(emails: (string | null | undefined)[]): s
   return cleanedList[0];
 }
 
+export interface ProspeoPersonEnrichResult {
+  email?: ProviderEmailResult | null;
+  phone?: ProviderPhoneResult | null;
+  linkedinUrl?: string | null;
+}
+
 /**
- * Mode A: Person Search via Prospeo Email Finder
+ * Mode A: Person Enrichment via Prospeo Enrich Person API
+ * Strictly adheres to official Prospeo documentation:
+ * POST https://api.prospeo.io/enrich-person
+ * Headers: X-KEY: <PROSPEO_API_KEY>, Content-Type: application/json
  */
-export async function prospeoFindPersonEmail(
+export async function prospeoEnrichPerson(
   domain: string,
   firstName: string,
-  lastName?: string | null
-): Promise<ProviderEmailResult | null> {
-  console.log('[Prospeo] Person Search for:', { firstName, lastName, domain });
+  lastName?: string | null,
+  enrichMobile: boolean = false
+): Promise<ProspeoPersonEnrichResult | null> {
+  console.log('[Prospeo] Enrich Person for:', { firstName, lastName, domain, enrichMobile });
   const apiKey = process.env.PROSPEO_API_KEY;
   if (!apiKey) {
     console.warn('[Prospeo] PROSPEO_API_KEY not configured in environment');
@@ -51,7 +61,7 @@ export async function prospeoFindPersonEmail(
   }
 
   try {
-    let res = await fetch('https://api.prospeo.io/enrich-person', {
+    const res = await fetch('https://api.prospeo.io/enrich-person', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -59,68 +69,83 @@ export async function prospeoFindPersonEmail(
       },
       body: JSON.stringify({
         only_verified_email: true,
-        enrich_mobile: false,
+        enrich_mobile: enrichMobile,
         data: {
           first_name: firstName,
           last_name: lastName || '',
           company_website: domain,
         },
       }),
+      signal: AbortSignal.timeout(10000),
     });
 
-    if (!res.ok) {
-      // Fallback to legacy endpoint if needed
-      res = await fetch('https://api.prospeo.io/email-finder', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-KEY': apiKey,
-        },
-        body: JSON.stringify({
-          first_name: firstName,
-          last_name: lastName || '',
-          company: { domain },
-          domain,
-        }),
-      });
-    }
+    const data = await res.json().catch(() => null);
 
-    if (!res.ok) {
-      console.warn(`[Prospeo] Person search HTTP ${res.status} for ${firstName} @ ${domain}`);
+    if (!res.ok || data?.error === true) {
+      console.warn(`[Prospeo] Person enrich ${data?.error_code || res.status} for ${firstName} @ ${domain}`);
       return null;
     }
 
-    const data = await res.json();
-    const rawEmail =
-      data?.response?.person?.email?.email ||
-      data?.person?.email?.email ||
-      data?.response?.email ||
-      data?.email;
+    const person = data?.person;
+    if (!person) {
+      return null;
+    }
 
+    let emailResult: ProviderEmailResult | null = null;
+    const rawEmail = person?.email?.email;
     const email = normalizeEmail(rawEmail);
-    if (!email) return null;
+    if (email) {
+      const isVerified = person?.email?.status === 'VERIFIED';
+      const score = person?.email?.score;
+      const confidence = typeof score === 'number' ? score / 100 : (isVerified ? 0.98 : 0.85);
 
-    const score =
-      data?.response?.person?.email?.score ||
-      data?.person?.email?.score ||
-      data?.response?.score;
+      emailResult = {
+        email,
+        provider: 'prospeo',
+        confidence,
+        type: 'SPECIFIC',
+      };
+    }
 
-    const confidence = typeof score === 'number' ? score / 100 : 0.9;
+    let phoneResult: ProviderPhoneResult | null = null;
+    const rawPhone = person?.mobile?.mobile;
+    if (rawPhone && typeof rawPhone === 'string' && rawPhone.trim().length > 0) {
+      phoneResult = {
+        phone: rawPhone.trim(),
+        provider: 'prospeo',
+        type: 'MOBILE',
+        confidence: person?.mobile?.status === 'VERIFIED' ? 0.95 : 0.85,
+      };
+    }
+
+    const linkedinUrl = person?.linkedin_url || null;
 
     return {
-      email,
-      provider: 'prospeo',
-      confidence,
-      type: 'SPECIFIC',
+      email: emailResult,
+      phone: phoneResult,
+      linkedinUrl,
     };
   } catch (err) {
-    console.warn('[Prospeo] Person search exception:', err);
+    console.warn('[Prospeo] Person enrich exception:', err);
     return null;
   }
 }
 
 /**
- * Mode B: Domain Search via Prospeo (domain-search or enrich-company fallback)
+ * Mode A: Person Search via Prospeo (convenience wrapper returning work email)
+ */
+export async function prospeoFindPersonEmail(
+  domain: string,
+  firstName: string,
+  lastName?: string | null
+): Promise<ProviderEmailResult | null> {
+  const result = await prospeoEnrichPerson(domain, firstName, lastName, false);
+  return result?.email ?? null;
+}
+
+/**
+ * Mode B: Domain Search via Prospeo Enrich Company API
+ * Strictly queries official POST https://api.prospeo.io/enrich-company
  */
 export async function prospeoFindDomainEmail(
   domain: string
@@ -133,60 +158,7 @@ export async function prospeoFindDomainEmail(
   }
 
   try {
-    // 1. Try domain-search endpoint
-    const res = await fetch('https://api.prospeo.io/domain-search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-KEY': apiKey,
-      },
-      body: JSON.stringify({
-        domain,
-        company: { domain },
-      }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const candidateEmails: string[] = [];
-
-      // Extract from generic_emails
-      const genericList = data?.response?.generic_emails || data?.generic_emails || [];
-      if (Array.isArray(genericList)) {
-        for (const item of genericList) {
-          if (typeof item === 'string') candidateEmails.push(item);
-          else if (item && typeof item.email === 'string') candidateEmails.push(item.email);
-        }
-      }
-
-      // Extract from emails list
-      const emailsList = data?.response?.emails || data?.emails || [];
-      if (Array.isArray(emailsList)) {
-        for (const item of emailsList) {
-          if (typeof item === 'string') candidateEmails.push(item);
-          else if (item && typeof item.email === 'string') {
-            if (item.type === 'generic' || !item.first_name) {
-              candidateEmails.unshift(item.email);
-            } else {
-              candidateEmails.push(item.email);
-            }
-          }
-        }
-      }
-
-      const bestEmail = selectBestGenericEmail(candidateEmails);
-      if (bestEmail) {
-        return {
-          email: bestEmail,
-          provider: 'prospeo',
-          confidence: 0.85,
-          type: 'GENERIC',
-        };
-      }
-    }
-
-    // 2. Fallback: Try enrich-company endpoint
-    const fallbackRes = await fetch('https://api.prospeo.io/enrich-company', {
+    const res = await fetch('https://api.prospeo.io/enrich-company', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -195,23 +167,32 @@ export async function prospeoFindDomainEmail(
       body: JSON.stringify({
         data: { company_website: domain },
       }),
-    }).catch(() => null);
+      signal: AbortSignal.timeout(8000),
+    });
 
-    if (fallbackRes && fallbackRes.ok) {
-      const fallbackData = await fallbackRes.json();
-      const comp = fallbackData?.company || fallbackData?.response?.company;
-      const candidates: string[] = [];
-      if (comp?.email) candidates.push(comp.email);
-      if (Array.isArray(comp?.generic_emails)) candidates.push(...comp.generic_emails);
-      const bestFallback = selectBestGenericEmail(candidates);
-      if (bestFallback) {
-        return {
-          email: bestFallback,
-          provider: 'prospeo',
-          confidence: 0.85,
-          type: 'GENERIC',
-        };
-      }
+    if (!res.ok) {
+      console.warn(`[Prospeo] Company enrich HTTP ${res.status} for domain ${domain}`);
+      return null;
+    }
+
+    const data = await res.json().catch(() => null);
+    if (data?.error === true || !data?.company) {
+      return null;
+    }
+
+    const comp = data.company;
+    const candidates: string[] = [];
+    if (comp?.email) candidates.push(comp.email);
+    if (Array.isArray(comp?.generic_emails)) candidates.push(...comp.generic_emails);
+
+    const bestEmail = selectBestGenericEmail(candidates);
+    if (bestEmail) {
+      return {
+        email: bestEmail,
+        provider: 'prospeo',
+        confidence: 0.85,
+        type: 'GENERIC',
+      };
     }
 
     return null;

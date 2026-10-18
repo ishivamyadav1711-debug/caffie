@@ -494,10 +494,16 @@ export const EnrichContactForm: React.FC = () => {
                   <Mail className="h-4 w-4 text-teal-600" />
                   <span>Work Email</span>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {result.workEmail?.type && (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200/70">
                       {result.workEmail.type}
+                    </span>
+                  )}
+                  {result.workEmail?.verified && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-300 flex items-center gap-1">
+                      <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                      Verified
                     </span>
                   )}
                   <span
@@ -569,10 +575,16 @@ export const EnrichContactForm: React.FC = () => {
                   <AtSign className="h-4 w-4 text-indigo-600" />
                   <span>Personal Email</span>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {result.personalEmail?.type && (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/70">
                       {result.personalEmail.type}
+                    </span>
+                  )}
+                  {result.personalEmail?.verified && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-300 flex items-center gap-1">
+                      <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                      Verified
                     </span>
                   )}
                   <span
@@ -641,10 +653,16 @@ export const EnrichContactForm: React.FC = () => {
                   <Phone className="h-4 w-4 text-emerald-600" />
                   <span>Phone Number</span>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {result.phone?.type && (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/70">
                       {result.phone.type}
+                    </span>
+                  )}
+                  {result.phone?.verified && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-300 flex items-center gap-1">
+                      <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                      Verified
                     </span>
                   )}
                   <span

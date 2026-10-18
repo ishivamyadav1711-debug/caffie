@@ -29,7 +29,7 @@ export interface ProviderEmailResult {
 
 export interface ProviderPhoneResult {
   phone: string;
-  provider: "icypeas" | "enrich.so";
+  provider: "icypeas" | "enrich.so" | "prospeo";
   type?: "MOBILE";
   confidence?: number;
 }
