@@ -22,7 +22,7 @@ export interface FieldEnrichmentResult {
 
 export interface ProviderEmailResult {
   email: string;
-  provider: "prospeo" | "tomba";
+  provider: "prospeo" | "tomba" | "enrich.so";
   confidence: number;
   type: "GENERIC" | "SPECIFIC";
 }
