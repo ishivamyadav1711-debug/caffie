@@ -1,96 +1,92 @@
-import { ProviderEmailResult } from '../types';
+import { ProviderEmailResult, ProviderPhoneResult, ProviderPersonalEmailResult } from '../types';
+import { normalizeEmail } from '@/utils/emailUtils';
 
+/**
+ * Searches for personal email via Enrich.so API.
+ * Strictly returns only real API data. Returns null if not found.
+ */
 export async function enrichsoFindPersonalEmail(
   domain?: string | null,
   firstName?: string | null,
   lastName?: string | null
-) {
+): Promise<ProviderPersonalEmailResult | null> {
   const apiKey = process.env.ENRICHSO_API_KEY;
   if (!apiKey) {
     console.warn("[Enrich.so] ENRICHSO_API_KEY is not set in environment");
     return null;
   }
 
+  if (!domain || !firstName) {
+    return null;
+  }
+
   try {
-    // 1. Primary requested endpoint: POST /api/v1/enrich/email
+    // 1. Primary endpoint: POST /api/v1/enrich/email
     const res = await fetch("https://dev.enrich.so/api/v1/enrich/email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        domain: domain || "",
-        first_name: firstName || "",
-        last_name: lastName || ""
+        domain,
+        first_name: firstName,
+        last_name: lastName || "",
       }),
       signal: AbortSignal.timeout(8000),
     });
 
     const data = await res.json().catch(() => null);
-    console.log("RAW ENRICHSO RESPONSE:", JSON.stringify(data, null, 2));
+    console.log("RAW ENRICHSO PERSONAL EMAIL RESPONSE:", JSON.stringify(data, null, 2));
 
-    // Try parsing flexibly
-    const email = data?.email || data?.personal_email || data?.data?.email || data?.data?.personal_email;
-    if (email && typeof email === "string") {
-      return { email, provider: "enrich.so" as const };
+    const rawEmail = data?.email || data?.personal_email || data?.data?.email || data?.data?.personal_email;
+    const email = normalizeEmail(rawEmail);
+    if (email) {
+      return { email, provider: "enrich.so", type: "PERSONAL", confidence: 0.9 };
     }
 
     // 2. Active Fallback Endpoint: POST /api/v3/email-finder
-    if (!email && (res.status === 404 || !data?.success)) {
-      console.log("[Enrich.so] Falling back to /api/v3/email-finder");
+    if (res.status === 404 || !data?.success) {
+      console.log("[Enrich.so] Falling back to /api/v3/email-finder for personal email");
       const v3Res = await fetch("https://dev.enrich.so/api/v3/email-finder", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${apiKey}`,
-          "Accept": "application/json"
+          "Accept": "application/json",
         },
         body: JSON.stringify({
-          firstName: firstName || "contact",
-          lastName: lastName || "team",
-          domain: domain || ""
+          firstName,
+          lastName: lastName || "",
+          domain,
         }),
         signal: AbortSignal.timeout(8000),
       });
 
-      const v3Data = await v3Res.json().catch(() => null);
-      console.log("RAW ENRICHSO V3 RESPONSE:", JSON.stringify(v3Data, null, 2));
+      if (v3Res.ok) {
+        const v3Data = await v3Res.json().catch(() => null);
+        console.log("RAW ENRICHSO V3 PERSONAL EMAIL RESPONSE:", JSON.stringify(v3Data, null, 2));
 
-      const v3Email = v3Data?.data?.email || v3Data?.email || v3Data?.data?.personal_email;
-      if (v3Email && typeof v3Email === "string") {
-        return { email: v3Email, provider: "enrich.so" as const };
-      }
-    }
-
-    // 3. Indian domain fallback for Personal Email (e.g. paytm.com)
-    if (domain) {
-      const cleanDom = domain.toLowerCase();
-      if (cleanDom === 'paytm.com' || cleanDom.endsWith('.in')) {
-        const personalFallback = firstName
-          ? `${firstName.toLowerCase()}.${(lastName || '').toLowerCase()}@gmail.com`
-          : 'vijay.sharma@gmail.com';
-        return { email: personalFallback, provider: "enrich.so" as const };
+        if (v3Data?.data?.found === true) {
+          const candidate = normalizeEmail(v3Data.data.email || v3Data.data.personal_email || v3Data.email);
+          if (candidate) {
+            return { email: candidate, provider: "enrich.so", type: "PERSONAL", confidence: 0.9 };
+          }
+        }
       }
     }
 
     return null;
   } catch (error) {
-    console.error("Enrich.so Email Error:", error);
-    // Indian domain fallback on network exception
-    if (domain) {
-      const cleanDom = domain.toLowerCase();
-      if (cleanDom === 'paytm.com' || cleanDom.endsWith('.in')) {
-        const personalFallback = firstName
-          ? `${firstName.toLowerCase()}.${(lastName || '').toLowerCase()}@gmail.com`
-          : 'vijay.sharma@gmail.com';
-        return { email: personalFallback, provider: "enrich.so" as const };
-      }
-    }
+    console.error("Enrich.so Personal Email Error:", error);
     return null;
   }
 }
 
+/**
+ * Searches for work email via Enrich.so API (/api/v3/email-finder).
+ * Strictly returns only real API data. Returns null if not found.
+ */
 export async function enrichsoFindWorkEmail(
   domain?: string | null,
   firstName?: string | null,
@@ -102,83 +98,70 @@ export async function enrichsoFindWorkEmail(
     return null;
   }
 
-  if (!domain) return null;
+  // v3 email-finder requires firstName and domain
+  if (!domain || !firstName) {
+    return null;
+  }
 
   try {
-    const effectiveFirstName = firstName || "contact";
-    const effectiveLastName = lastName || "team";
-
-    const v3Res = await fetch("https://dev.enrich.so/api/v3/email-finder", {
+    const res = await fetch("https://dev.enrich.so/api/v3/email-finder", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
-        "Accept": "application/json"
+        "Accept": "application/json",
       },
       body: JSON.stringify({
-        firstName: effectiveFirstName,
-        lastName: effectiveLastName,
-        domain
+        firstName,
+        lastName: lastName || "",
+        domain,
       }),
       signal: AbortSignal.timeout(8000),
     });
 
-    if (v3Res.ok) {
-      const v3Data = await v3Res.json().catch(() => null);
-      console.log("RAW ENRICHSO WORK EMAIL RESPONSE:", JSON.stringify(v3Data, null, 2));
-
-      const v3Email = v3Data?.data?.email || v3Data?.email;
-      if (v3Email && typeof v3Email === "string" && v3Data?.data?.found !== false) {
-        return {
-          email: v3Email,
-          provider: "enrich.so",
-          confidence: v3Data?.data?.confidence === "high" ? 0.95 : 0.85,
-          type: firstName ? "SPECIFIC" : "GENERIC",
-        };
-      }
+    if (!res.ok) {
+      console.warn(`[Enrich.so] Work email search HTTP ${res.status} for ${firstName} @ ${domain}`);
+      return null;
     }
 
-    // Indian domain fallback for Work Email (e.g. paytm.com)
-    const cleanDom = domain.toLowerCase();
-    if (cleanDom === 'paytm.com' || cleanDom.endsWith('.in')) {
-      const workFallback = firstName
-        ? `${firstName.toLowerCase()}.${(lastName || 'sharma').toLowerCase()}@${cleanDom}`
-        : `care@${cleanDom}`;
-      return {
-        email: workFallback,
-        provider: "enrich.so",
-        confidence: 0.85,
-        type: firstName ? "SPECIFIC" : "GENERIC",
-      };
+    const data = await res.json().catch(() => null);
+    console.log("RAW ENRICHSO WORK EMAIL RESPONSE:", JSON.stringify(data, null, 2));
+
+    if (data?.data?.found === true) {
+      const email = normalizeEmail(data.data.email || data.email);
+      if (email) {
+        return {
+          email,
+          provider: "enrich.so",
+          confidence: data.data.confidence === "high" ? 0.95 : 0.85,
+          type: "SPECIFIC",
+        };
+      }
     }
 
     return null;
   } catch (error) {
     console.error("Enrich.so Work Email Error:", error);
-    const cleanDom = domain.toLowerCase();
-    if (cleanDom === 'paytm.com' || cleanDom.endsWith('.in')) {
-      const workFallback = firstName
-        ? `${firstName.toLowerCase()}.${(lastName || 'sharma').toLowerCase()}@${cleanDom}`
-        : `care@${cleanDom}`;
-      return {
-        email: workFallback,
-        provider: "enrich.so",
-        confidence: 0.85,
-        type: firstName ? "SPECIFIC" : "GENERIC",
-      };
-    }
     return null;
   }
 }
 
+/**
+ * Searches for direct phone via Enrich.so API.
+ * Strictly returns only real API data. Returns null if not found.
+ */
 export async function enrichsoFindPhone(
   domain?: string | null,
   firstName?: string | null,
   lastName?: string | null
-) {
+): Promise<ProviderPhoneResult | null> {
   const apiKey = process.env.ENRICHSO_API_KEY;
   if (!apiKey) {
     console.warn("[Enrich.so] ENRICHSO_API_KEY is not set in environment");
+    return null;
+  }
+
+  if (!domain) {
     return null;
   }
 
@@ -187,12 +170,12 @@ export async function enrichsoFindPhone(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        domain: domain || "",
+        domain,
         first_name: firstName || "",
-        last_name: lastName || ""
+        last_name: lastName || "",
       }),
       signal: AbortSignal.timeout(8000),
     });
@@ -200,19 +183,17 @@ export async function enrichsoFindPhone(
     const data = await res.json().catch(() => null);
     console.log("RAW ENRICHSO PHONE RESPONSE:", JSON.stringify(data, null, 2));
 
-    // Try parsing flexibly
-    const phone =
+    const rawPhone =
       data?.phone ||
       data?.mobile ||
       data?.direct_phone ||
       data?.data?.phone ||
       data?.data?.mobile;
 
-    if (phone && typeof phone === "string") {
-      return { phone, provider: "enrich.so" as const };
+    if (rawPhone && typeof rawPhone === "string" && rawPhone.trim().length > 0) {
+      return { phone: rawPhone.trim(), provider: "enrich.so", type: "MOBILE" };
     }
 
-    // No hardcoded mock fallback: return null if phone is not found or credit limit exceeded
     return null;
   } catch (error) {
     console.error("Enrich.so Phone Error:", error);
