@@ -68,6 +68,7 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
   const companyDomain = cleanDomain(input.company_domain);
   const companyCity = cleanString(input.company_city);
   const companyCountry = cleanString(input.company_country);
+  const linkedinUrl = cleanString(input.linkedin_url);
 
   // 2. Company Primary Identifier Validation
   if (!companyDomain && !companyName) {
@@ -209,9 +210,9 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
   let phone: FieldEnrichmentResult | null = null;
   let totalCost = 0;
 
-  // Mode A Pre-Fetch: If domain and firstName are provided, execute Prospeo Person Enrichment
+  // Mode A Pre-Fetch: If domain and firstName are provided and workEmail is requested, execute Prospeo Person Enrichment
   let prospeoPerson: ProspeoPersonEnrichResult | null = null;
-  if (companyDomain && firstName) {
+  if (companyDomain && firstName && activeFields.includes('workEmail')) {
     totalCost += 0.01;
     console.log(`[Prospeo] Enriching person for domain: ${companyDomain}, name: ${firstName} ${lastName || ''}`);
     prospeoPerson = await prospeoEnrichPerson(
@@ -377,12 +378,13 @@ export async function enrichContact(input: EnrichmentInput): Promise<EnrichmentO
     if (companyDomain) {
       plannedWaterfall.personalEmail = ['enrich.so'];
 
-      console.log(`Trying enrich.so for domain: ${companyDomain}`);
+      const targetLinkedinUrl = linkedinUrl || prospeoPerson?.linkedinUrl || null;
+      console.log(`Trying enrich.so for domain: ${companyDomain}, linkedinUrl: ${targetLinkedinUrl}`);
       const enrichRes = await enrichsoFindPersonalEmail(
         companyDomain,
         firstName,
         lastName,
-        prospeoPerson?.linkedinUrl || null
+        targetLinkedinUrl
       );
       console.log(`enrich.so result:`, enrichRes);
 

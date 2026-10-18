@@ -174,7 +174,7 @@ export const EnrichContactForm: React.FC = () => {
                   </span>
                 </h2>
                 <p className="text-[12.5px] text-[#64748B] mt-0.5">
-                  Multi-provider waterfall: Work Email (Prospeo/Tomba), Personal Email & Phone (Enrich.so Demo Mode)
+                  Multi-provider waterfall: Work Email (Prospeo/Tomba/Enrich.so), Personal Email (Enrich.so), Phone (Prospeo/Icypeas)
                 </p>
               </div>
             </div>
@@ -231,14 +231,14 @@ export const EnrichContactForm: React.FC = () => {
 
         {/* Card Body & Form */}
         <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">
-          {/* Demo Mode Disclaimer */}
-          <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 text-[12px] text-amber-900 flex items-center justify-between gap-3">
+          {/* Real API Notice */}
+          <div className="p-3 rounded-xl bg-teal-50/80 border border-teal-200/80 text-[12px] text-teal-900 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="font-bold px-2 py-0.5 rounded-md bg-amber-600 text-white text-[10.5px]">
-                Demo Mode
+              <span className="font-bold px-2 py-0.5 rounded-md bg-teal-600 text-white text-[10.5px]">
+                Live APIs
               </span>
               <span>
-                Free demo integration active: Enrich.so powers Personal Email and Demo Phone at $0.00 cost. Work Email is queried live via Prospeo & Tomba.
+                Real-time API integration active: Work Email via Prospeo, Tomba & Enrich.so. Personal Email & Phone enriched strictly via verified provider responses with zero mock data.
               </span>
             </div>
           </div>
@@ -632,7 +632,7 @@ export const EnrichContactForm: React.FC = () => {
                   <span className="font-semibold text-slate-800 uppercase">
                     {result.personalEmail?.provider || 'None'}
                   </span>
-                  {result.personalEmail?.provider === 'enrich.so' && (
+                  {result.personalEmail?.provider === 'enrich.so' && Boolean(result.personalEmail?.value) && (
                     <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-300">
                       Free Demo
                     </span>
@@ -710,7 +710,7 @@ export const EnrichContactForm: React.FC = () => {
                   <span className="font-semibold text-slate-800 uppercase">
                     {result.phone?.provider || 'None'}
                   </span>
-                  {result.phone?.provider === 'enrich.so' && (
+                  {result.phone?.provider === 'enrich.so' && Boolean(result.phone?.value) && (
                     <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-300">
                       Free Demo
                     </span>

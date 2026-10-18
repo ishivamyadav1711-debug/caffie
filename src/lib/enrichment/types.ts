@@ -7,6 +7,7 @@ export interface EnrichmentInput {
   company_domain?: string | null;
   company_city?: string | null;
   company_country?: string | null;
+  linkedin_url?: string | null;
   fields: ("workEmail" | "personalEmail" | "phone")[];
 }
 

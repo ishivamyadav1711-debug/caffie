@@ -4,6 +4,20 @@ import { icypeasFindPhone } from '@/lib/enrichment/icypeas';
 import { leadmagicFindPersonalEmail } from '@/lib/enrichment/leadmagic';
 import { enrichsoFindPersonalEmail, enrichsoFindPhone } from '@/lib/enrichment/enrichso';
 
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    enrichmentResult: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'res_1' }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    enrichmentRequest: {
+      create: vi.fn().mockResolvedValue({ id: 'req_1' }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+  },
+}));
+
 describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo', () => {
   const originalEnv = process.env;
 
@@ -75,48 +89,46 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
   describe('Enrich.so Adapter (Direct)', () => {
     it('finds personal email via enrichsoFindPersonalEmail', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('/api/v1/enrich/email')) {
+        if (url.includes('linkedin-to-personal-email')) {
           return {
             ok: true,
-            json: async () => ({ email: 'satya@microsoft.com' }),
+            json: async () => ({
+              success: true,
+              data: {
+                found: true,
+                personalEmail: 'satya@microsoft.com',
+              },
+            }),
           };
         }
         return { ok: false };
       });
 
-      const res = await enrichsoFindPersonalEmail('microsoft.com', 'Satya', 'Nadella');
+      const res = await enrichsoFindPersonalEmail('microsoft.com', 'Satya', 'Nadella', 'https://linkedin.com/in/satyanadella');
       expect(res).toEqual({
         email: 'satya@microsoft.com',
         provider: 'enrich.so',
+        type: 'PERSONAL',
+        confidence: 0.9,
       });
     });
 
-    it('finds phone number via enrichsoFindPhone', async () => {
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('/api/v1/enrich/phone')) {
-          return {
-            ok: true,
-            json: async () => ({ phone: '+1 425 882 8080' }),
-          };
-        }
-        return { ok: false };
-      });
-
+    it('returns null when enrichsoFindPhone has no phone', async () => {
       const res = await enrichsoFindPhone('microsoft.com', 'Satya', 'Nadella');
-      expect(res).toEqual({
-        phone: '+1 425 882 8080',
-        provider: 'enrich.so',
-      });
+      expect(res).toBeNull();
     });
   });
 
   describe('Pipeline Flow with Enrich.so Free Demo ($0.00 cost)', () => {
     it('enriches personal email with Enrich.so without cost ($0.00)', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('/api/v1/enrich/email')) {
+        if (url.includes('linkedin-to-personal-email')) {
           return {
             ok: true,
-            json: async () => ({ email: 'satya@microsoft.com' }),
+            json: async () => ({
+              success: true,
+              data: { found: true, personalEmail: 'satya.personal@gmail.com' },
+            }),
           };
         }
         return { ok: false };
@@ -126,31 +138,23 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
         company_domain: 'microsoft.com',
         first_name: 'Satya',
         last_name: 'Nadella',
+        linkedin_url: 'https://linkedin.com/in/satyanadella',
         fields: ['personalEmail'],
       });
 
       expect(result.personalEmail).toEqual({
-        value: 'satya@microsoft.com',
+        value: 'satya.personal@gmail.com',
         provider: 'enrich.so',
         confidence: 0.9,
         type: 'PERSONAL',
         status: 'FOUND',
+        verified: true,
       });
       expect(result.totalCost).toBe(0.00);
       expect(result.routing.plannedWaterfall.personalEmail).toEqual(['enrich.so']);
     });
 
-    it('enriches phone number with Enrich.so without cost ($0.00)', async () => {
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('/api/v1/enrich/phone')) {
-          return {
-            ok: true,
-            json: async () => ({ phone: '+1 425 882 8080' }),
-          };
-        }
-        return { ok: false };
-      });
-
+    it('returns NOT_FOUND when Enrich.so returns no phone', async () => {
       const result = await enrichContact({
         company_domain: 'microsoft.com',
         first_name: 'Satya',
@@ -159,14 +163,15 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
       });
 
       expect(result.phone).toEqual({
-        value: '+1 425 882 8080',
-        provider: 'enrich.so',
-        confidence: 0.85,
+        value: null,
+        provider: null,
+        confidence: null,
         type: 'MOBILE',
-        status: 'FOUND',
+        status: 'NOT_FOUND',
+        reason: 'No direct phone found',
       });
       expect(result.totalCost).toBe(0.00);
-      expect(result.routing.plannedWaterfall.phone).toEqual(['enrich.so']);
+      expect(result.routing.plannedWaterfall.phone).toEqual(['prospeo', 'icypeas', 'enrich.so']);
     });
 
     it('skips personal email when first_name is missing', async () => {
@@ -192,27 +197,17 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
       expect(result.phone?.reason).toBe('Domain required');
     });
 
-    it('enriches all 3 fields together (Free Demo preset)', async () => {
+    it('enriches contacts returning real API data without mock phone', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('api.prospeo.io')) {
+        if (url.includes('api.prospeo.io/enrich-person')) {
           return {
             ok: true,
             json: async () => ({
               error: false,
-              response: { email: 'satya.nadella@microsoft.com' },
+              person: {
+                email: { email: 'satya.nadella@microsoft.com', status: 'VERIFIED' },
+              },
             }),
-          };
-        }
-        if (url.includes('/api/v1/enrich/email')) {
-          return {
-            ok: true,
-            json: async () => ({ email: 'satya.personal@outlook.com' }),
-          };
-        }
-        if (url.includes('/api/v1/enrich/phone')) {
-          return {
-            ok: true,
-            json: async () => ({ phone: '+1 425 882 8080' }),
           };
         }
         return { ok: false };
@@ -228,14 +223,11 @@ describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo',
 
       expect(result.workEmail?.status).toBe('FOUND');
       expect(result.workEmail?.value).toBe('satya.nadella@microsoft.com');
-      expect(result.personalEmail?.status).toBe('FOUND');
-      expect(result.personalEmail?.value).toBe('satya.personal@outlook.com');
-      expect(result.personalEmail?.provider).toBe('enrich.so');
-      expect(result.phone?.status).toBe('FOUND');
-      expect(result.phone?.value).toBe('+1 425 882 8080');
-      expect(result.phone?.provider).toBe('enrich.so');
+      expect(result.phone?.status).toBe('NOT_FOUND');
+      expect(result.phone?.value).toBeNull();
+      expect(result.phone?.provider).toBeNull();
 
-      // Only Prospeo was charged ($0.01), Enrich.so is free ($0.00)
+      // Only Prospeo was charged ($0.01)
       expect(result.totalCost).toBe(0.01);
     });
   });

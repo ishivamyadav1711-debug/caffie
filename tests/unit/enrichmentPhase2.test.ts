@@ -2,6 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { enrichContact } from '@/lib/enrichment';
 import { selectBestGenericEmail } from '@/lib/enrichment/prospeo';
 
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    enrichmentResult: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'res_1' }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    enrichmentRequest: {
+      create: vi.fn().mockResolvedValue({ id: 'req_1' }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+  },
+}));
+
 describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
   const originalEnv = process.env;
 
@@ -52,12 +66,14 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
   describe('Mode A: Person Search (first_name is provided)', () => {
     it('returns Prospeo email and stops on first success with cost 0.01', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('prospeo.io')) {
+        if (url.includes('prospeo.io/enrich-person')) {
           return {
             ok: true,
             json: async () => ({
               error: false,
-              response: { email: 'satya.nadella@microsoft.com', score: 98 },
+              person: {
+                email: { email: 'satya.nadella@microsoft.com', status: 'VERIFIED' },
+              },
             }),
           };
         }
@@ -77,6 +93,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
         confidence: 0.98,
         type: 'SPECIFIC',
         status: 'FOUND',
+        verified: true,
       });
       expect(result.totalCost).toBe(0.01);
       // Tomba should NOT have been called
@@ -88,7 +105,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
         if (url.includes('prospeo.io')) {
           return {
             ok: true,
-            json: async () => ({ error: true, response: null }),
+            json: async () => ({ error: true, person: null }),
           };
         }
         if (url.includes('tomba.io/v1/email-finder')) {
@@ -115,6 +132,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
         confidence: 0.92,
         type: 'SPECIFIC',
         status: 'FOUND',
+        verified: true,
       });
       expect(result.totalCost).toBe(0.0178);
       expect(global.fetch).toHaveBeenCalledTimes(2);
@@ -143,11 +161,11 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
   describe('Mode B: Domain Search (first_name is missing)', () => {
     it('returns Prospeo generic email on first success with cost 0.01', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('prospeo.io/domain-search')) {
+        if (url.includes('prospeo.io/enrich-company')) {
           return {
             ok: true,
             json: async () => ({
-              response: {
+              company: {
                 generic_emails: ['support@stripe.com', 'info@stripe.com'],
               },
             }),
@@ -167,6 +185,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
         confidence: 0.85,
         type: 'GENERIC',
         status: 'FOUND',
+        verified: true,
       });
       expect(result.totalCost).toBe(0.01);
       expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -177,7 +196,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
         if (url.includes('prospeo.io')) {
           return {
             ok: true,
-            json: async () => ({ response: { generic_emails: [] } }),
+            json: async () => ({ company: { emails: [] } }),
           };
         }
         if (url.includes('tomba.io/v1/domain-search')) {
@@ -207,6 +226,7 @@ describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
         confidence: 0.85,
         type: 'GENERIC',
         status: 'FOUND',
+        verified: true,
       });
       expect(result.totalCost).toBe(0.0178);
     });
