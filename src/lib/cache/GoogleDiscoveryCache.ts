@@ -45,6 +45,8 @@ export class GoogleDiscoveryCache {
     city?: string;
     country?: string;
     limit?: number;
+    offset?: number;
+    page?: number;
     contactFilter?: string;
     websiteFilter?: string;
     highNetWorthFilter?: boolean;
@@ -59,6 +61,7 @@ export class GoogleDiscoveryCache {
       norm(params.contactFilter || 'all'),
       norm(params.websiteFilter || 'any'),
       params.limit || 50,
+      params.offset || 0,
       params.highNetWorthFilter ? 'hnw' : 'standard',
     ].join(':');
   }

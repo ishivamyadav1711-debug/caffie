@@ -56,18 +56,19 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
           }, effectiveTimeout)
         );
 
+        const requestedOffset = Math.max(Number(params.offset) || 0, 0);
         const queryPromise = queryOverpassBusinesses({
           industry: params.industry,
           state: params.state,
           city: params.city,
           bbox: bbox as any,
-          limit: Math.max(params.limit || 50, 25),
+          limit: Math.max((params.limit || 50) + requestedOffset, 25),
         });
 
         return await Promise.race([queryPromise, timeoutPromise]);
       });
 
-      const businesses: RawDiscoveredBusiness[] = (discovery?.leads || []).map((lead: any) => {
+      const rawDiscovered: RawDiscoveredBusiness[] = (discovery?.leads || []).map((lead: any) => {
         const name = lead.businessName || lead.name || '';
         const postalCode = lead.postcode || lead.location?.postcode;
         const sourceUrl = lead.sourceUrl || (lead.osmType && lead.osmId ? `https://www.openstreetmap.org/${lead.osmType}/${lead.osmId}` : undefined);
@@ -111,6 +112,11 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
         };
       });
 
+      const requestedOffset = Math.max(Number(params.offset) || 0, 0);
+      const businesses = requestedOffset > 0
+        ? rawDiscovered.slice(requestedOffset, requestedOffset + (params.limit || 20))
+        : rawDiscovered;
+
       const durationMs = Date.now() - startTime;
       const rawCount = businesses.length;
       const requestedLimit = params.limit || 20;
@@ -128,6 +134,8 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
         statusReason:
           rawCount > 0
             ? `Discovered ${rawCount} real candidates from OpenStreetMap.`
+            : requestedOffset > 0
+            ? 'No more businesses found in this area. Try a different location or category.'
             : `OpenStreetMap found zero business records for ${params.industry} in ${resolvedAreaName}.`,
         queryUsed: discovery.queryUsed,
         endpointUsed: discovery.endpointUsed,

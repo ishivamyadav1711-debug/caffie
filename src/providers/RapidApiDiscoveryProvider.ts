@@ -452,7 +452,9 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
     if (RapidApiDiscoveryProvider.simulateResults !== null) {
       const simList = RapidApiDiscoveryProvider.simulateResults;
       const maxLimit = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
-      const clampedSimList = simList.slice(0, maxLimit);
+      const offset = Math.max(Number(params.offset) || 0, 0);
+      const clampedSimList = simList.slice(offset, offset + maxLimit);
+      const isExhausted = clampedSimList.length === 0 && offset > 0;
       return {
         providerId: this.providerId,
         providerName: this.name,
@@ -461,7 +463,9 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         businesses: clampedSimList,
         sourceComplete: clampedSimList.length > 0,
         status: clampedSimList.length > 0 ? 'SUCCESS' : 'NO_RESULTS',
-        statusReason: `Discovered ${clampedSimList.length} places via RapidAPI Maps Data (Simulated).`,
+        statusReason: isExhausted
+          ? 'No more businesses found in this area. Try a different location or category.'
+          : `Discovered ${clampedSimList.length} places via RapidAPI Maps Data (Simulated).`,
         pagesRequested: 1,
         errors: [],
         durationMs: 120,
@@ -494,9 +498,10 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
     if (isMockMode) {
       const maxLeadsAllowed = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
       const demoCount = Math.min(Math.max(params.limit || (isHnwActive ? 25 : 10), 1), maxLeadsAllowed);
+      const offset = Math.max(Number(params.offset) || 0, 0);
       const isIndia = countryParam.toLowerCase().includes('in') || countryParam.toLowerCase().includes('india');
       const demoBusinesses: RawDiscoveredBusiness[] = Array.from({ length: demoCount }, (_, idx) => {
-        const id = idx + 1;
+        const id = offset + idx + 1;
         const name = `[DEMO MOCK] ${params.industry} Demo Company ${id}`;
         // Standard fictional phone ranges (RFC/NANP 555-01xx for US/CA, 99999 for IN)
         const demoPhone = isIndia ? `+91 99999 000${id.toString().padStart(2, '0')}` : `+1 (555) 01${id.toString().padStart(2, '0')}`;
@@ -598,14 +603,18 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       // Hard enforce server-side MAX_LEADS_PER_RUN (or 25 for High-Net-Worth batch)
       const maxLeadsAllowed = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
       const targetLimit = Math.min(Math.max(params.limit || (isHnwActive ? 25 : 10), 1), maxLeadsAllowed);
+      const requestedOffset = Math.max(Number(params.offset) || 0, 0);
+      const requestedPage = params.page || Math.floor(requestedOffset / targetLimit) + 1;
+      const apiLimit = requestedOffset > 0 ? Math.min(targetLimit + requestedOffset, 50) : targetLimit;
 
       const { url, hostHeader } = this.resolveGatewayEndpoint();
 
       url.searchParams.set('query', cleanQuery);
-      url.searchParams.set('limit', String(targetLimit));
+      url.searchParams.set('limit', String(apiLimit));
       url.searchParams.set('country', countryCode);
       url.searchParams.set('lang', 'en');
-      url.searchParams.set('offset', '0');
+      url.searchParams.set('offset', String(requestedOffset));
+      url.searchParams.set('page', String(requestedPage));
 
       // 4. Resilient execution under RapidAPI Circuit Breaker
       const discoveryResult = await rapidApiCircuitBreaker.execute(async () => {
@@ -679,6 +688,12 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         rawItems = discoveryResult.results;
       } else if (Array.isArray(discoveryResult)) {
         rawItems = discoveryResult;
+      }
+
+      // If the provider returned results from index 0 instead of honoring the offset directly,
+      // slice based on requestedOffset to ensure paginated non-duplicate results
+      if (requestedOffset > 0 && rawItems.length > targetLimit) {
+        rawItems = rawItems.slice(requestedOffset, requestedOffset + targetLimit);
       }
 
       logger.info({
@@ -762,6 +777,8 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       const statusReason =
         businesses.length > 0
           ? `Discovered ${businesses.length} verified businesses via RapidAPI Maps Data.`
+          : requestedOffset > 0
+          ? 'No more businesses found in this area. Try a different location or category.'
           : `RapidAPI queried successfully but returned zero results for ${params.industry} in ${resolvedArea}.`;
 
       return {

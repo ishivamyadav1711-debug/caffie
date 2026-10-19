@@ -352,7 +352,8 @@ export class LeadPilotOrchestrator {
       const isHnw = Boolean(job.highNetWorthFilter || (criteria as any).highNetWorthOnly);
       const hnwBudget = 25; // Action Item 3: Hard cap of 25 candidates
       const targetDiscoveryPool = isHnw ? hnwBudget : job.requestedLeads;
-      timestamps.googleStart = Date.now();
+      const requestedOffset = Math.max(Number(criteria.offset) || 0, 0);
+      const requestedPage = criteria.page || (requestedOffset ? Math.floor(requestedOffset / (criteria.limit || 20)) + 1 : 1);
       const discoveryOutput = await this.executeTrackedActor(
         businessDiscoveryActor,
         job,
@@ -362,6 +363,8 @@ export class LeadPilotOrchestrator {
           city: verifiedCity,
           country: verifiedCountry,
           limit: targetDiscoveryPool,
+          offset: requestedOffset,
+          page: requestedPage,
           bbox,
           highNetWorthFilter: isHnw,
           highNetWorthOnly: isHnw,
@@ -372,9 +375,9 @@ export class LeadPilotOrchestrator {
 
       // Keep candidate counts bounded strictly by targetDiscoveryPool
       let allCandidates: typeof discoveryOutput.businesses = [...discoveryOutput.businesses];
-      if (allCandidates.length < targetDiscoveryPool && cachedCandidates.length > 0) {
+      if (allCandidates.length < targetDiscoveryPool && cachedCandidates.length > requestedOffset) {
         const needed = targetDiscoveryPool - allCandidates.length;
-        allCandidates = [...allCandidates, ...cachedCandidates.slice(0, needed)];
+        allCandidates = [...allCandidates, ...cachedCandidates.slice(requestedOffset, requestedOffset + needed)];
       }
 
       job.apiRequestsCount = discoveryOutput.apiRequestsCount || 1;
@@ -1547,6 +1550,9 @@ export class LeadPilotOrchestrator {
         if (providerFailure) {
           job.statusReason =
             'Provider failure: Search provider encountered an error or quota exhaustion while querying candidates.';
+        } else if (requestedOffset > 0 && (job.discovered === 0 || deliveredEntities.length === 0)) {
+          job.statusReason =
+            'No more businesses found in this area. Try a different location or category.';
         } else if (job.discovered === 0) {
           job.statusReason =
             'No matching candidates found in the specified location and industry.';

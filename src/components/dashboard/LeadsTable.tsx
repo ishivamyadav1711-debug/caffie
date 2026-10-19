@@ -57,6 +57,8 @@ interface LeadsTableProps {
   onShowToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
   hasSearched?: boolean;
   isSearching?: boolean;
+  onLoadMore?: () => void;
+  currentOffset?: number;
 }
 
 export const LeadsTable: React.FC<LeadsTableProps> = ({
@@ -78,6 +80,8 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   onShowToast,
   hasSearched = false,
   isSearching = false,
+  onLoadMore,
+  currentOffset = 0,
 }) => {
   // In-results search query (filters within returned real records)
   const [searchQuery, setSearchQuery] = useState('');
@@ -1409,27 +1413,41 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
             </span>
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-3">
+            {onLoadMore && (
               <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-2.5 py-1 rounded-lg border border-[#CBD5E1] bg-white text-[12px] text-[#0F172A] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors cursor-pointer"
+                onClick={onLoadMore}
+                disabled={isSearching}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-teal-300 bg-teal-50 text-[12px] font-semibold text-teal-800 hover:bg-teal-100 transition-all btn-pressable shadow-2xs cursor-pointer disabled:opacity-50"
+                title="Fetch next batch of new leads for the same search criteria"
               >
-                Previous
+                <Sparkles className="h-3.5 w-3.5 text-teal-600" />
+                <span>Load Next Batch</span>
               </button>
-              <span className="px-2 text-[#0F172A] font-semibold">
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-2.5 py-1 rounded-lg border border-[#CBD5E1] bg-white text-[12px] text-[#0F172A] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors cursor-pointer"
-              >
-                Next
-              </button>
-            </div>
-          )}
+            )}
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1 rounded-lg border border-[#CBD5E1] bg-white text-[12px] text-[#0F172A] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors cursor-pointer"
+                >
+                  Previous
+                </button>
+                <span className="px-2 text-[#0F172A] font-semibold">
+                  {currentPage} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1 rounded-lg border border-[#CBD5E1] bg-white text-[12px] text-[#0F172A] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

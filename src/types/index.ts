@@ -236,6 +236,8 @@ export interface SearchRequestPayload {
   contactFilter?: ContactFilter;
   websiteFilter?: WebsiteFilter;
   limit: number;
+  offset?: number;
+  page?: number;
   minRating?: number;
   minReviews?: number;
   excludePerfectRating?: boolean;

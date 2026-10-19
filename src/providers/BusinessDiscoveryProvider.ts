@@ -5,6 +5,8 @@ export interface SearchDiscoveryParams {
   country?: string;
   keywords?: string[];
   limit: number;
+  offset?: number;
+  page?: number;
   bbox?: [number, number, number, number] | any;
   highNetWorthFilter?: boolean;
   highNetWorthOnly?: boolean;

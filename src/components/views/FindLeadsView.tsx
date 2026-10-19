@@ -37,10 +37,18 @@ export const FindLeadsView: React.FC<FindLeadsViewProps> = ({
   const [city, setCity] = useState('Greater Noida');
   const [isScanning, setIsScanning] = useState(false);
   const [discoveredBatches, setDiscoveredBatches] = useState<any[]>([]);
+  const [scanOffset, setScanOffset] = useState<number>(0);
+  const lastScanKeyRef = React.useRef<string>('');
 
   const runNewScan = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsScanning(true);
+
+    const currentKey = `${stateName}:${city.trim()}:${industry}`;
+    const isSameCriteria = lastScanKeyRef.current === currentKey;
+    const nextOffset = isSameCriteria ? scanOffset + 50 : 0;
+    setScanOffset(nextOffset);
+    lastScanKeyRef.current = currentKey;
 
     try {
       const res = await fetch('/api/leads/search?sync=true', {
@@ -54,6 +62,8 @@ export const FindLeadsView: React.FC<FindLeadsViewProps> = ({
           contactFilter: 'All Contacts',
           websiteFilter: 'Any Website',
           limit: 50,
+          offset: nextOffset,
+          page: Math.floor(nextOffset / 50) + 1,
           sync: true,
         }),
       });
@@ -62,9 +72,18 @@ export const FindLeadsView: React.FC<FindLeadsViewProps> = ({
       setIsScanning(false);
 
       if (data.success && Array.isArray(data.leads)) {
+        if (data.leads.length === 0 && nextOffset > 0) {
+          onShowToast(
+            'Discovery Complete',
+            data.statusReason || 'No more businesses found in this area. Try a different location or category.',
+            'info'
+          );
+          return;
+        }
+
         const newBatch = {
           id: `batch-${Date.now()}`,
-          title: `${city ? `${city}, ` : ''}${stateName} ${industry}`,
+          title: `${city ? `${city}, ` : ''}${stateName} ${industry} (Offset: ${nextOffset})`,
           location: `${city ? `${city}, ` : ''}${stateName}`,
           leadsFound: data.leads.length,
           noWebsite: data.summary?.noWebsite || 0,
@@ -81,7 +100,13 @@ export const FindLeadsView: React.FC<FindLeadsViewProps> = ({
           'success'
         );
       } else {
-        onShowToast('Discovery Notice', data.error || 'Pipeline run returned no candidates.', 'warning');
+        const noMoreMsg =
+          data.statusReason ||
+          data.error ||
+          (nextOffset > 0
+            ? 'No more businesses found in this area. Try a different location or category.'
+            : 'Pipeline run returned no candidates.');
+        onShowToast('Discovery Notice', noMoreMsg, 'warning');
       }
     } catch (err: any) {
       setIsScanning(false);

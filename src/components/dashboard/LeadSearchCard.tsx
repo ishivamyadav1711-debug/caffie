@@ -33,6 +33,8 @@ export interface LeadFilterCriteria {
   contact: ContactFilter;
   website: WebsiteFilter;
   limit: NumberOfLeads;
+  offset?: number;
+  page?: number;
   minRating?: number;
   minReviews?: number;
   excludePerfectRating?: boolean;
@@ -46,7 +48,7 @@ interface LeadSearchCardProps {
   initialCriteria?: Partial<LeadFilterCriteria>;
   isSearchingExternal?: boolean;
   liveProgressLog?: { actorId: string; stepName: string; message: string; count?: number; timestamp: string }[];
-  onSearchStart?: () => void;
+  onSearchStart?: (isSubsequentBatch?: boolean) => void;
   onSearchSubmit?: (criteria: LeadFilterCriteria) => void;
   onViewLeads?: () => void;
 }
@@ -59,6 +61,10 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   onSearchSubmit,
   onViewLeads,
 }) => {
+  // Offset tracking for sequential pagination
+  const [currentOffset, setCurrentOffset] = useState<number>(initialCriteria?.offset || 0);
+  const lastCriteriaKeyRef = React.useRef<string>('');
+
   // 1. COUNTRY: USA, Canada, India
   const [selectedCountry, setSelectedCountry] = useState<'India' | 'USA' | 'Canada'>(
     (initialCriteria?.country as any) || 'USA'
@@ -219,13 +225,20 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
     e.preventDefault();
     if (isSearching) return;
 
-    if (onSearchStart) {
-      onSearchStart();
-    }
-
     const isAllCities =
       activeCity.toLowerCase().startsWith('all cities') ||
       activeCity.toLowerCase().includes('all cities in');
+
+    const currentKey = `${selectedCountry}:${selectedState}:${isAllCities ? '' : activeCity}:${activeIndustry}:${contact}:${website}:${limit}:${Boolean(highNetWorthFilter)}`;
+    const isSameCriteria = lastCriteriaKeyRef.current === currentKey;
+    const nextOffset = isSameCriteria ? currentOffset + Number(limit) : 0;
+
+    if (onSearchStart) {
+      onSearchStart(nextOffset > 0);
+    }
+
+    setCurrentOffset(nextOffset);
+    lastCriteriaKeyRef.current = currentKey;
 
     const criteria: LeadFilterCriteria = {
       country: selectedCountry,
@@ -235,6 +248,8 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
       contact,
       website,
       limit,
+      offset: nextOffset,
+      page: Math.floor(nextOffset / Number(limit)) + 1,
       minRating,
       minReviews,
       excludePerfectRating,
@@ -563,7 +578,13 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
               </>
             ) : (
               <>
-                <span>Find Leads</span>
+                <span>
+                  {lastCriteriaKeyRef.current &&
+                  lastCriteriaKeyRef.current === `${selectedCountry}:${selectedState}:${activeCity.toLowerCase().startsWith('all cities') || activeCity.toLowerCase().includes('all cities in') ? '' : activeCity}:${activeIndustry}:${contact}:${website}:${limit}:${Boolean(highNetWorthFilter)}` &&
+                  currentOffset > 0
+                    ? `Find Next Batch (+${limit})`
+                    : 'Find Leads'}
+                </span>
                 <ArrowRight className="h-4 w-4 text-teal-400" />
               </>
             )}

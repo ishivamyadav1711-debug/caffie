@@ -78,6 +78,8 @@ export class BusinessDiscoveryActor extends BaseActor<SearchDiscoveryParams, Bus
       city: params.city,
       country: params.country,
       limit: requestedLimit,
+      offset: params.offset || 0,
+      page: params.page || 1,
       highNetWorthFilter: Boolean(params.highNetWorthFilter || params.highNetWorthOnly),
     });
 

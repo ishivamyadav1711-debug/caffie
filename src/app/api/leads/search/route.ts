@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
       contactFilter = 'All Contacts',
       websiteFilter = 'Any Website',
       limit = 100,
+      offset = 0,
+      page,
       minRating,
       minReviews,
       excludePerfectRating,
@@ -91,6 +93,8 @@ export async function POST(req: NextRequest) {
     // Enforce server-side lead limit ceiling (default 20, selectable 5-20, safe default 10)
     const maxLeadsConfig = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
     const requestedLimit = Math.min(Math.max(Number(limit) || 10, 1), maxLeadsConfig);
+    const requestedOffset = Math.max(Number(offset) || 0, 0);
+    const requestedPage = Math.max(Number(page) || (requestedOffset ? Math.floor(requestedOffset / requestedLimit) + 1 : 1), 1);
     const searchPayload: SearchRequestPayload = {
       country: locValidation.country,
       state: locValidation.matchedState,
@@ -99,6 +103,8 @@ export async function POST(req: NextRequest) {
       contactFilter,
       websiteFilter,
       limit: requestedLimit,
+      offset: requestedOffset,
+      page: requestedPage,
 
       minRating: typeof minRating === 'number' ? minRating : undefined,
       minReviews: typeof minReviews === 'number' ? minReviews : undefined,
