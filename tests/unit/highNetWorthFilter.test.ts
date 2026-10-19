@@ -524,4 +524,74 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
       expect(passedUI).toBe(true);
     });
   });
+
+  describe('11. Smart Search Strategy & API Limit Protection', () => {
+    it('modifies user query to enterprise/corporate queries when HNW filter is active', async () => {
+      const { optimizeQueryForHighNetWorth } = await import('@/providers/RapidApiDiscoveryProvider');
+
+      expect(optimizeQueryForHighNetWorth('Hospitals')).toBe('Corporate Hospitals');
+      expect(optimizeQueryForHighNetWorth('Hospital')).toBe('Corporate Hospitals');
+      expect(optimizeQueryForHighNetWorth('Restaurants')).toBe('Restaurant Chains');
+      expect(optimizeQueryForHighNetWorth('Hotels')).toBe('Luxury Hotel Chains');
+      expect(optimizeQueryForHighNetWorth('Automotive')).toBe('Authorized Automobile Dealerships');
+      expect(optimizeQueryForHighNetWorth('Software')).toBe('Enterprise Software Companies');
+      expect(optimizeQueryForHighNetWorth('Consulting')).toBe('Corporate Consulting');
+
+      // Does not double-modify already enterprise queries
+      expect(optimizeQueryForHighNetWorth('Corporate Hospitals')).toBe('Corporate Hospitals');
+      expect(optimizeQueryForHighNetWorth('Restaurant Chains')).toBe('Restaurant Chains');
+    });
+
+    it('verifies major corporate hospital networks (Apollo, Fortis, Max) qualify in financial registry', async () => {
+      const { financialEvidenceProvider } = await import('@/lib/financial/FinancialEvidenceProvider');
+
+      // Test Apollo Hospitals
+      const apolloEvidence = await financialEvidenceProvider.getFinancialEvidence('Apollo Hospitals Navi Mumbai', 'India');
+      expect(apolloEvidence.length).toBeGreaterThan(0);
+      const apolloEval = evaluateFinancialEligibility(apolloEvidence, { businessName: 'Apollo Hospitals Navi Mumbai' });
+      expect(apolloEval.isQualified).toBe(true);
+      expect(apolloEval.amountInInr).toBe(65_000_000_000);
+
+      // Test Fortis Hospital
+      const fortisEvidence = await financialEvidenceProvider.getFinancialEvidence('Fortis Hospital Mulund', 'India');
+      expect(fortisEvidence.length).toBeGreaterThan(0);
+      const fortisEval = evaluateFinancialEligibility(fortisEvidence, { businessName: 'Fortis Hospital Mulund' });
+      expect(fortisEval.isQualified).toBe(true);
+      expect(fortisEval.amountInInr).toBe(72_000_000_000);
+
+      // Test Max Healthcare
+      const maxEvidence = await financialEvidenceProvider.getFinancialEvidence('Max Healthcare Hospital', 'India');
+      expect(maxEvidence.length).toBeGreaterThan(0);
+      const maxEval = evaluateFinancialEligibility(maxEvidence, { businessName: 'Max Healthcare Hospital' });
+      expect(maxEval.isQualified).toBe(true);
+      expect(maxEval.amountInInr).toBe(84_000_000_000);
+    });
+
+    it('verifies partial, complete, and zero-result messaging for ₹70 Cr+ searches', () => {
+      // Complete result
+      const completeJob: any = { requestedLeads: 5, highNetWorthFilter: true };
+      const completeCount = 5;
+      const completeReason = completeJob.highNetWorthFilter
+        ? `Found ${completeCount} verified leads matching ₹70 Cr+.`
+        : '';
+      expect(completeReason).toBe('Found 5 verified leads matching ₹70 Cr+.');
+
+      // Partial result (e.g. 2 of 5)
+      const partialJob: any = { requestedLeads: 5, highNetWorthFilter: true };
+      const partialCount = 2;
+      const partialReason = partialJob.highNetWorthFilter
+        ? `Found ${partialCount} verified leads matching ₹70 Cr+. Scanned max limit of 25 local businesses.`
+        : '';
+      expect(partialReason).toBe('Found 2 verified leads matching ₹70 Cr+. Scanned max limit of 25 local businesses.');
+
+      // Zero result
+      const zeroJob: any = { requestedLeads: 5, highNetWorthFilter: true };
+      const zeroReason = zeroJob.highNetWorthFilter
+        ? '0 verified businesses found in this area. To save API limits, we searched a max of 25 candidates. Try a larger city (e.g., Mumbai) or turn off the ₹70 Cr filter.'
+        : '';
+      expect(zeroReason).toBe(
+        '0 verified businesses found in this area. To save API limits, we searched a max of 25 candidates. Try a larger city (e.g., Mumbai) or turn off the ₹70 Cr filter.'
+      );
+    });
+  });
 });

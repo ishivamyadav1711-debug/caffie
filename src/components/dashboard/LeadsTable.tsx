@@ -20,7 +20,8 @@ import {
   AlertTriangle,
   Send,
   Sparkles,
-  Wand2
+  Wand2,
+  CheckCircle2
 } from 'lucide-react';
 import { BulkAIOutreachModal } from '../outreach/BulkAIOutreachModal';
 import { 
@@ -811,6 +812,12 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                 <p className="text-[13px] text-[#64748B] max-w-lg mt-1 leading-relaxed">
                   {statusReason || `The pipeline discovered ${pipelineBreakdown?.rawDiscoveredCount || pipelineStats?.rawOsmCount || 0} candidate businesses, but none satisfied the required filter criteria. Complete rejection breakdown is detailed below.`}
                 </p>
+                {statusReason && statusReason.includes('₹70 Cr') && (
+                  <div className="mt-3 max-w-lg mx-auto p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[12.5px] text-left flex items-start gap-2 shadow-2xs">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>{statusReason}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1012,7 +1019,16 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
 
         {/* State E: Results Table (Section 9 Columns) */}
         {hasSearched && !isSearching && leads.length > 0 && (
-          <table className="w-full text-left text-[12.5px] border-collapse">
+          <div className="overflow-x-auto">
+            {statusReason && statusReason.includes('₹70 Cr') && (
+              <div className="px-5 py-2.5 bg-violet-50 border-b border-violet-100 flex items-center justify-between text-[12.5px] text-violet-900 font-medium">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-violet-600 shrink-0" />
+                  <span>{statusReason}</span>
+                </div>
+              </div>
+            )}
+            <table className="w-full text-left text-[12.5px] border-collapse">
             <thead>
               <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">
                 <th className="px-3 py-3 w-8">
@@ -1375,6 +1391,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

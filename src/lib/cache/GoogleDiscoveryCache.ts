@@ -47,6 +47,7 @@ export class GoogleDiscoveryCache {
     limit?: number;
     contactFilter?: string;
     websiteFilter?: string;
+    highNetWorthFilter?: boolean;
   }): string {
     const norm = (s?: string) => (s ? s.trim().toLowerCase().replace(/\s+/g, '_') : '');
     return [
@@ -58,6 +59,7 @@ export class GoogleDiscoveryCache {
       norm(params.contactFilter || 'all'),
       norm(params.websiteFilter || 'any'),
       params.limit || 50,
+      params.highNetWorthFilter ? 'hnw' : 'standard',
     ].join(':');
   }
 

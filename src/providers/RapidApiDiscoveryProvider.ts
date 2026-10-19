@@ -58,6 +58,91 @@ import { logger } from '@/utils/logger';
  *   status: "OK"
  * }
  */
+/**
+ * Maps common industry search terms to enterprise/corporate queries to discover
+ * larger commercial entities with public regulatory filings (SEC / MCA) when the
+ * High-Net-Worth ₹70 Cr+ filter is active.
+ */
+export function optimizeQueryForHighNetWorth(industry: string): string {
+  const cleanInd = industry.trim();
+  const lower = cleanInd.toLowerCase();
+
+  // If already modified or contains large/enterprise terms, keep as-is
+  if (
+    lower.includes('corporate') ||
+    lower.includes('chains') ||
+    lower.includes('chain') ||
+    lower.includes('multi-specialty') ||
+    lower.includes('multispecialty') ||
+    lower.includes('enterprise') ||
+    lower.includes('large')
+  ) {
+    return cleanInd;
+  }
+
+  // Healthcare / Hospitals
+  if (lower === 'hospital' || lower === 'hospitals' || lower.includes('hospital')) {
+    return 'Corporate Hospitals';
+  }
+  if (lower === 'clinic' || lower === 'clinics' || lower.includes('clinic')) {
+    return 'Multi-specialty Hospitals';
+  }
+
+  // Food & Hospitality / Restaurants
+  if (lower === 'restaurant' || lower === 'restaurants' || lower.includes('restaurant') || lower.includes('dining')) {
+    return 'Restaurant Chains';
+  }
+  if (lower === 'hotel' || lower === 'hotels' || lower.includes('hotel') || lower.includes('resort')) {
+    return 'Luxury Hotel Chains';
+  }
+
+  // Automotive / Dealerships
+  if (
+    lower === 'automotive' ||
+    lower === 'car dealer' ||
+    lower === 'car dealers' ||
+    lower === 'car dealerships' ||
+    lower === 'dealership' ||
+    lower === 'dealerships' ||
+    lower.includes('automobile')
+  ) {
+    return 'Authorized Automobile Dealerships';
+  }
+
+  // Technology / Software
+  if (lower === 'software' || lower === 'it' || lower === 'tech' || lower.includes('software')) {
+    return 'Enterprise Software Companies';
+  }
+
+  // Retail / Supermarkets
+  if (lower === 'retail' || lower === 'supermarket' || lower === 'supermarkets' || lower.includes('store')) {
+    return 'Retail Chains Supermarkets';
+  }
+
+  // Real Estate / Construction
+  if (lower === 'real estate' || lower === 'builder' || lower === 'builders' || lower.includes('realtor')) {
+    return 'Commercial Real Estate Developers';
+  }
+
+  // Manufacturing / Industry
+  if (lower === 'manufacturing' || lower === 'factory' || lower.includes('industrial')) {
+    return 'Large Manufacturing Enterprises';
+  }
+
+  // Education
+  if (lower === 'school' || lower === 'schools' || lower === 'college' || lower === 'colleges') {
+    return 'International Schools Colleges';
+  }
+
+  // Finance / Banking
+  if (lower === 'bank' || lower === 'banks' || lower.includes('finance')) {
+    return 'Commercial Banks Financial Institutions';
+  }
+
+  // Default fallback for any other industry
+  return `Corporate ${cleanInd}`;
+}
+
 export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
   readonly providerId = 'rapidapi';
   readonly name = 'RapidAPI Maps Data';
@@ -308,7 +393,12 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
     const startTime = Date.now();
     const resolvedArea = params.city ? `${params.city}, ${params.state}` : params.state;
     const countryParam = params.country || 'India';
-    const cleanQuery = `${params.industry} in ${resolvedArea}, ${countryParam}`;
+    const isHnwActive = Boolean(params.highNetWorthFilter || params.highNetWorthOnly);
+    const effectiveIndustry = isHnwActive ? optimizeQueryForHighNetWorth(params.industry) : params.industry;
+    if (isHnwActive && effectiveIndustry !== params.industry) {
+      console.log(`[RapidAPI Query Optimization] High-Net-Worth toggle is ON: modified query industry from "${params.industry}" to "${effectiveIndustry}"`);
+    }
+    const cleanQuery = `${effectiveIndustry} in ${resolvedArea}, ${countryParam}`;
 
     // 0. Simulation handling for automated unit testing (Zero external cost)
     if (RapidApiDiscoveryProvider.simulateTimeout) {
@@ -361,7 +451,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
 
     if (RapidApiDiscoveryProvider.simulateResults !== null) {
       const simList = RapidApiDiscoveryProvider.simulateResults;
-      const maxLimit = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+      const maxLimit = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
       const clampedSimList = simList.slice(0, maxLimit);
       return {
         providerId: this.providerId,
@@ -402,8 +492,8 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
     const isMockMode = process.env.RAPIDAPI_MOCK_MODE === 'true' || apiKey === 'mock' || apiKey === 'demo';
 
     if (isMockMode) {
-      const maxLeadsAllowed = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
-      const demoCount = Math.min(Math.max(params.limit || 10, 1), maxLeadsAllowed);
+      const maxLeadsAllowed = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+      const demoCount = Math.min(Math.max(params.limit || (isHnwActive ? 25 : 10), 1), maxLeadsAllowed);
       const isIndia = countryParam.toLowerCase().includes('in') || countryParam.toLowerCase().includes('india');
       const demoBusinesses: RawDiscoveredBusiness[] = Array.from({ length: demoCount }, (_, idx) => {
         const id = idx + 1;
@@ -505,9 +595,9 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
     const effectiveTimeoutMs = timeouts.rapidapiFastMs || 15000;
 
     try {
-      // Hard enforce server-side MAX_LEADS_PER_RUN (max 20)
-      const maxLeadsAllowed = parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
-      const targetLimit = Math.min(Math.max(params.limit || 10, 1), maxLeadsAllowed);
+      // Hard enforce server-side MAX_LEADS_PER_RUN (or 25 for High-Net-Worth batch)
+      const maxLeadsAllowed = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+      const targetLimit = Math.min(Math.max(params.limit || (isHnwActive ? 25 : 10), 1), maxLeadsAllowed);
 
       const { url, hostHeader } = this.resolveGatewayEndpoint();
 

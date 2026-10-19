@@ -78,6 +78,7 @@ export class BusinessDiscoveryActor extends BaseActor<SearchDiscoveryParams, Bus
       city: params.city,
       country: params.country,
       limit: requestedLimit,
+      highNetWorthFilter: Boolean(params.highNetWorthFilter || params.highNetWorthOnly),
     });
 
     const cached = googleDiscoveryCache.getSearchQueryResults<BusinessDiscoveryOutput>(searchKey);

@@ -6,6 +6,8 @@ export interface SearchDiscoveryParams {
   keywords?: string[];
   limit: number;
   bbox?: [number, number, number, number] | any;
+  highNetWorthFilter?: boolean;
+  highNetWorthOnly?: boolean;
 }
 
 export interface RawDiscoveredBusiness {
