@@ -44,8 +44,10 @@ export function evaluateFinancialEligibility(
   if (!evidenceList || !Array.isArray(evidenceList) || evidenceList.length === 0) {
     return {
       eligibilityState: 'INSUFFICIENT_EVIDENCE',
+      state: 'INSUFFICIENT_EVIDENCE',
       filterMode,
       isQualified: false,
+      isHighNetWorthQualified: false,
       thresholdInr: HIGH_NET_WORTH_THRESHOLD_INR,
       primaryMetricType: 'UNKNOWN',
       matchingConfidence: 0,
@@ -74,8 +76,10 @@ export function evaluateFinancialEligibility(
   if (matchingConfidence < 0.80) {
     return {
       eligibilityState: 'INSUFFICIENT_EVIDENCE',
+      state: 'INSUFFICIENT_EVIDENCE',
       filterMode,
       isQualified: false,
+      isHighNetWorthQualified: false,
       thresholdInr: HIGH_NET_WORTH_THRESHOLD_INR,
       primaryMetricType: bestEvidence.metricType,
       matchingConfidence,
@@ -91,8 +95,10 @@ export function evaluateFinancialEligibility(
   if (bestEvidence.verificationStatus === 'STALE' || bestEvidence.verificationStatus === 'CONTRADICTORY') {
     return {
       eligibilityState: 'INSUFFICIENT_EVIDENCE',
+      state: 'INSUFFICIENT_EVIDENCE',
       filterMode,
       isQualified: false,
+      isHighNetWorthQualified: false,
       thresholdInr: HIGH_NET_WORTH_THRESHOLD_INR,
       primaryMetricType: bestEvidence.metricType,
       matchingConfidence,
@@ -113,8 +119,10 @@ export function evaluateFinancialEligibility(
     const formattedInr = formatInrCrores(amountInInr);
     return {
       eligibilityState: 'NOT_QUALIFIED',
+      state: 'NOT_QUALIFIED',
       filterMode,
       isQualified: false,
+      isHighNetWorthQualified: false,
       thresholdInr: HIGH_NET_WORTH_THRESHOLD_INR,
       primaryMetricType: bestEvidence.metricType,
       matchingConfidence,
@@ -137,8 +145,10 @@ export function evaluateFinancialEligibility(
 
     return {
       eligibilityState: 'QUALIFIED',
+      state: 'QUALIFIED',
       filterMode,
       isQualified: true,
+      isHighNetWorthQualified: true,
       thresholdInr: HIGH_NET_WORTH_THRESHOLD_INR,
       primaryMetricType: bestEvidence.metricType,
       matchingConfidence,
@@ -157,8 +167,10 @@ export function evaluateFinancialEligibility(
     const formattedInr = formatInrCrores(amountInInr);
     return {
       eligibilityState: 'NOT_QUALIFIED',
+      state: 'NOT_QUALIFIED',
       filterMode,
       isQualified: false,
+      isHighNetWorthQualified: false,
       thresholdInr: HIGH_NET_WORTH_THRESHOLD_INR,
       primaryMetricType: bestEvidence.metricType,
       matchingConfidence,

@@ -1133,8 +1133,8 @@ export class LeadPilotOrchestrator {
           return null;
         }
 
-        // Experimental High-Net-Worth Business Filter (₹70 Crore INR threshold)
-        if (job.highNetWorthFilter) {
+        // Strict High-Net-Worth Business Filter (₹70 Crore INR threshold)
+        if (job.highNetWorthFilter || (criteria as any).highNetWorthOnly) {
           const evidence = await financialEvidenceProvider.getFinancialEvidence(b.businessName, criteria.country);
           const filterMode = (criteria as any).financialFilterMode || 'STRICT_NET_WORTH';
           const financialEval = evaluateFinancialEligibility(
@@ -1145,8 +1145,47 @@ export class LeadPilotOrchestrator {
           entity.financialEligibility = financialEval;
           entity.isHighNetWorthQualified = financialEval.isQualified;
 
-          // If evidence is verified and confirms net worth is strictly BELOW threshold (< ₹70 Cr), reject it
-          if (financialEval.eligibilityState === 'NOT_QUALIFIED') {
+          // STRICT ENFORCEMENT:
+          // If the "Net Worth ₹70 Cr+" toggle is ON, ONLY allow companies with verifiable
+          // public financial data (SEC EDGAR / MCA) proving their net worth is ≥ ₹70 Cr INR.
+          // Drop both INSUFFICIENT_EVIDENCE (missing filings) and NOT_QUALIFIED (below threshold).
+          const evalState = financialEval.state || financialEval.eligibilityState;
+          const isHnwQualified = financialEval.isHighNetWorthQualified ?? financialEval.isQualified;
+
+          if (evalState === 'INSUFFICIENT_EVIDENCE') {
+            rejectedCandidatesList.push({
+              name: b.businessName,
+              category: b.category,
+              city: b.city,
+              state: b.state,
+              phone: b.phone,
+              email: b.email,
+              websiteUrl: b.website,
+              websiteStatus: webClass.status,
+              rejectionReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
+              rejectionDetails: 'Excluded: Reliable public financial evidence (filings/disclosures) was unavailable',
+            });
+            job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE = (job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) + 1;
+
+            logger.info({
+              jobId: job.id,
+              actorId: 'financial_diagnostics',
+              message: `Financial Qualification Rejected: ${b.businessName} (Insufficient Evidence - Public filings unavailable)`,
+              extra: {
+                candidateName: b.businessName,
+                normalizedCountry: (b as any).country || criteria.country || 'India',
+                normalizedState: b.state,
+                normalizedCity: b.city,
+                normalizedCategory: b.category,
+                exactReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
+                details: financialEval.qualificationExplanation,
+              },
+            });
+            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Insufficient financial evidence (No public SEC/MCA filings)`);
+            return null; // Do NOT pass through to final UI list
+          }
+
+          if (evalState === 'NOT_QUALIFIED') {
             rejectedCandidatesList.push({
               name: b.businessName,
               category: b.category,
@@ -1175,24 +1214,17 @@ export class LeadPilotOrchestrator {
                 details: financialEval.qualificationExplanation,
               },
             });
-            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" REJECTED: Verified below threshold (${financialEval.metricLabel})`);
+            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Verified below threshold (${financialEval.metricLabel})`);
+            return null; // Do NOT pass through to final UI list
+          }
+
+          // Only allow if explicitly verified and meets the threshold
+          if (isHnwQualified !== true) {
+            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Not verified high-net-worth qualified`);
             return null;
           }
 
-          // If public financial records are missing/unknown (INSUFFICIENT_EVIDENCE),
-          // do NOT hard-fail the pipeline. Maps APIs (RapidAPI/OSM) return local businesses
-          // without SEC/MCA filings. Allow the lead to pass through marked as "Net Worth: Unverified".
-          if (financialEval.eligibilityState === 'INSUFFICIENT_EVIDENCE') {
-            entity.financialEligibility = {
-              ...financialEval,
-              metricLabel: 'Net Worth: Unverified',
-              qualificationExplanation: 'No public regulatory filings (SEC/MCA/SEDAR+) found. Net worth unverified.',
-            };
-            entity.isHighNetWorthQualified = false;
-            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" -> Public filings unknown. Passing through as "Net Worth: Unverified"`);
-          } else {
-            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" QUALIFIED (≥ ₹70 Cr INR): ${financialEval.metricLabel}`);
-          }
+          console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" QUALIFIED (≥ ₹70 Cr INR): ${financialEval.metricLabel}`);
         }
 
         return entity;
@@ -1486,21 +1518,16 @@ export class LeadPilotOrchestrator {
 
       // Section 10 & 11: Truthful status semantics
       const verifiedHnwCount = deliveredEntities.filter((e) => e.financialEligibility?.isQualified).length;
-      const unverifiedHnwCount = deliveredEntities.filter((e) => e.financialEligibility && !e.financialEligibility.isQualified).length;
 
       if (deliveredEntities.length >= job.requestedLeads) {
         job.sourceStatus = 'COMPLETE';
         job.statusReason = job.highNetWorthFilter
-          ? (verifiedHnwCount > 0
-              ? `Discovered and qualified ${deliveredEntities.length} businesses (${verifiedHnwCount} verified Net Worth ≥ ₹70 Cr INR, ${unverifiedHnwCount} unverified).`
-              : `Discovered and delivered ${deliveredEntities.length} businesses (Net Worth: Unverified - public filings unavailable).`)
+          ? `Discovered and qualified ${deliveredEntities.length} verified High-Net-Worth businesses (Net Worth ≥ ₹70 Cr INR).`
           : `Discovered and qualified ${deliveredEntities.length} verified leads satisfying all criteria.`;
       } else if (deliveredEntities.length > 0) {
         job.sourceStatus = 'PARTIAL';
         job.statusReason = job.highNetWorthFilter
-          ? (verifiedHnwCount > 0
-              ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} leads (${verifiedHnwCount} verified Net Worth ≥ ₹70 Cr INR, ${unverifiedHnwCount} unverified).`
-              : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} leads (Net Worth: Unverified - public filings unavailable).`)
+          ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified High-Net-Worth leads (Net Worth ≥ ₹70 Cr INR). Configured sources yielded ${deliveredEntities.length} qualified filers.`
           : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified leads. Configured sources yielded ${deliveredEntities.length} matching venues.`;
       } else {
         job.sourceStatus = 'NO_RESULTS';
@@ -1544,7 +1571,7 @@ export class LeadPilotOrchestrator {
         }
       }
 
-      console.log(`[Pipeline Stage 4: Delivery] Delivered ${deliveredEntities.length} leads to UI (Verified HNW: ${verifiedHnwCount}, Unverified HNW: ${unverifiedHnwCount}, Requested: ${job.requestedLeads}) | Status: ${job.status} | SourceStatus: ${job.sourceStatus}`);
+      console.log(`[Pipeline Stage 4: Delivery] Delivered ${deliveredEntities.length} leads to UI (Verified HNW: ${verifiedHnwCount}, Requested: ${job.requestedLeads}) | Status: ${job.status} | SourceStatus: ${job.sourceStatus}`);
 
       // Persist delivered leads in LeadPilot database for instant reuse & rotation (Section 12), excluding synthetic mock demo leads
       leadPilotDb.upsertLeadsBatch(deliveredEntities.filter((e) => !e.isMock));

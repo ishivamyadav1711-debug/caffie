@@ -74,8 +74,10 @@ export interface FinancialEvidenceRecord {
 
 export interface FinancialEligibilityResult {
   eligibilityState: FinancialEligibilityState;
+  state?: FinancialEligibilityState; // Convenient alias for eligibilityState
   filterMode: FinancialFilterMode;
   isQualified: boolean;
+  isHighNetWorthQualified?: boolean; // Convenient alias for isQualified
   thresholdInr: number;
   primaryMetricType: FinancialMetricType;
   matchingConfidence: number;

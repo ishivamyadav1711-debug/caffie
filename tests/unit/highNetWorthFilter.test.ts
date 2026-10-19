@@ -426,8 +426,102 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
 
       const evalResult = evaluateFinancialEligibility(evidence, { businessName: 'Ramesh Corner Grocery' });
       expect(evalResult.eligibilityState).toBe('INSUFFICIENT_EVIDENCE');
+      expect(evalResult.state).toBe('INSUFFICIENT_EVIDENCE');
       expect(evalResult.isQualified).toBe(false);
+      expect(evalResult.isHighNetWorthQualified).toBe(false);
       expect(evalResult.amountInInr).toBeUndefined();
+    });
+  });
+
+  describe('10. Strict Enforcement of High-Net-Worth Filter', () => {
+    it('strictly drops unverified local businesses (INSUFFICIENT_EVIDENCE)', () => {
+      const evalResult = evaluateFinancialEligibility([], { businessName: 'Local Corner Cafe' });
+      expect(evalResult.state).toBe('INSUFFICIENT_EVIDENCE');
+      expect(evalResult.isHighNetWorthQualified).toBe(false);
+
+      // Simulation of orchestrator strict drop check
+      const filters = { highNetWorthOnly: true };
+      let passedUI = true;
+      if (filters.highNetWorthOnly === true) {
+        if (evalResult.state === 'INSUFFICIENT_EVIDENCE' || evalResult.state === 'NOT_QUALIFIED') {
+          passedUI = false;
+        } else if (evalResult.isHighNetWorthQualified !== true) {
+          passedUI = false;
+        }
+      }
+      expect(passedUI).toBe(false);
+    });
+
+    it('strictly drops verified sub-threshold businesses (NOT_QUALIFIED)', () => {
+      const subThresholdEvidence: FinancialEvidenceRecord[] = [
+        {
+          metricType: 'NET_WORTH',
+          rawAmount: 200_000_000, // ₹20 Cr INR (< ₹70 Cr INR)
+          currency: 'INR',
+          amountInInr: 200_000_000,
+          conversionRateUsed: 1.0,
+          conversionMethod: 'Direct base currency (INR)',
+          conversionDate: '2026-10-01',
+          thresholdMet: false,
+          reportingPeriod: 'FY2023-24',
+          sourceName: 'Ministry of Corporate Affairs (MCA)',
+          sourceUrl: 'https://mca.gov.in',
+          sourceTier: 'TIER_1_REGISTRY',
+          evidenceDate: '2024-03-31',
+          verificationStatus: 'VERIFIED',
+        },
+      ];
+
+      const evalResult = evaluateFinancialEligibility(subThresholdEvidence, { businessName: 'Small Enterprise Ltd' });
+      expect(evalResult.state).toBe('NOT_QUALIFIED');
+      expect(evalResult.isHighNetWorthQualified).toBe(false);
+
+      const filters = { highNetWorthOnly: true };
+      let passedUI = true;
+      if (filters.highNetWorthOnly === true) {
+        if (evalResult.state === 'INSUFFICIENT_EVIDENCE' || evalResult.state === 'NOT_QUALIFIED') {
+          passedUI = false;
+        } else if (evalResult.isHighNetWorthQualified !== true) {
+          passedUI = false;
+        }
+      }
+      expect(passedUI).toBe(false);
+    });
+
+    it('allows only explicitly verified businesses exceeding ₹70 Cr INR threshold', () => {
+      const qualifiedEvidence: FinancialEvidenceRecord[] = [
+        {
+          metricType: 'NET_WORTH',
+          rawAmount: 1_200_000_000, // ₹120 Cr INR (>= ₹70 Cr INR)
+          currency: 'INR',
+          amountInInr: 1_200_000_000,
+          conversionRateUsed: 1.0,
+          conversionMethod: 'Direct base currency (INR)',
+          conversionDate: '2026-10-01',
+          thresholdMet: true,
+          reportingPeriod: 'FY2023-24',
+          sourceName: 'Ministry of Corporate Affairs (MCA)',
+          sourceUrl: 'https://mca.gov.in',
+          sourceTier: 'TIER_1_REGISTRY',
+          evidenceDate: '2024-03-31',
+          verificationStatus: 'VERIFIED',
+        },
+      ];
+
+      const evalResult = evaluateFinancialEligibility(qualifiedEvidence, { businessName: 'Mega Corp Ltd' });
+      expect(evalResult.state).toBe('QUALIFIED');
+      expect(evalResult.isHighNetWorthQualified).toBe(true);
+
+      const filters = { highNetWorthOnly: true };
+      let passedUI = true;
+      if (filters.highNetWorthOnly === true) {
+        if (evalResult.state === 'INSUFFICIENT_EVIDENCE' || evalResult.state === 'NOT_QUALIFIED') {
+          passedUI = false;
+        } else if (evalResult.isHighNetWorthQualified !== true) {
+          passedUI = false;
+        }
+      }
+      expect(passedUI).toBe(true);
     });
   });
 });
