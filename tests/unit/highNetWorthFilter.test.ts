@@ -13,6 +13,11 @@ import {
   FinancialMetricType,
 } from '@/lib/financial/types';
 import { LeadPilotOrchestrator } from '@/orchestrator/LeadPilotOrchestrator';
+import {
+  financialEvidenceProvider,
+  calculateEntityMatchConfidence,
+} from '@/lib/financial/FinancialEvidenceProvider';
+import { entityResolver } from '@/lib/financial/EntityResolver';
 
 describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => {
   describe('1. Threshold & Constant Definitions', () => {
@@ -652,6 +657,71 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
       const Y = requestedLimit - X;
       const statusReason = `Found ${X} verified ${X === 1 ? 'lead' : 'leads'}. Searched thoroughly but could not find ${Y} more in this area. Try a broader location.`;
       expect(statusReason).toBe('Found 1 verified lead. Searched thoroughly but could not find 4 more in this area. Try a broader location.');
+    });
+  });
+
+  describe('11. Parent Company Resolution & MCA Entity Matching (Fixing False Negatives)', () => {
+    it('resolves "The Oberoi, Mumbai" to EIH Limited and verifies net worth ≥ ₹70 Cr', async () => {
+      const evidence = await financialEvidenceProvider.getFinancialEvidence('The Oberoi, Mumbai', 'India');
+      expect(evidence.length).toBeGreaterThan(0);
+      expect(evidence[0].entityName).toContain('EIH Limited');
+      expect(evidence[0].amountInInr).toBeGreaterThanOrEqual(700_000_000);
+      expect(evidence[0].matchingConfidence).toBeGreaterThanOrEqual(0.80);
+
+      const evalResult = evaluateFinancialEligibility(evidence, { businessName: 'The Oberoi, Mumbai', country: 'India' });
+      expect(evalResult.isQualified).toBe(true);
+      expect(evalResult.eligibilityState).toBe('QUALIFIED');
+      expect(evalResult.metricLabel).toContain('Net Worth');
+    });
+
+    it('resolves "ITC Grand Central" to ITC Hotels Limited and verifies net worth ≥ ₹70 Cr', async () => {
+      const evidence = await financialEvidenceProvider.getFinancialEvidence('ITC Grand Central', 'India');
+      expect(evidence.length).toBeGreaterThan(0);
+      expect(evidence[0].entityName).toContain('ITC');
+      expect(evidence[0].amountInInr).toBeGreaterThanOrEqual(700_000_000);
+      expect(evidence[0].matchingConfidence).toBeGreaterThanOrEqual(0.80);
+
+      const evalResult = evaluateFinancialEligibility(evidence, { businessName: 'ITC Grand Central', country: 'India' });
+      expect(evalResult.isQualified).toBe(true);
+      expect(evalResult.eligibilityState).toBe('QUALIFIED');
+    });
+
+    it('resolves "The Taj Mahal Palace, Mumbai" to IHCL and qualifies', async () => {
+      const evidence = await financialEvidenceProvider.getFinancialEvidence('The Taj Mahal Palace, Mumbai', 'India');
+      expect(evidence.length).toBeGreaterThan(0);
+      expect(evidence[0].entityName).toContain('The Indian Hotels Company Limited');
+      expect(evidence[0].amountInInr).toBe(95_000_000_000);
+
+      const evalResult = evaluateFinancialEligibility(evidence, { businessName: 'The Taj Mahal Palace, Mumbai' });
+      expect(evalResult.isQualified).toBe(true);
+      expect(evalResult.eligibilityState).toBe('QUALIFIED');
+    });
+
+    it('cleans suffixes and locations from company names before MCA search', () => {
+      expect(entityResolver.cleanEntityName('The Oberoi, Mumbai')).toBe('Oberoi');
+      expect(entityResolver.cleanEntityName('ITC Grand Central, A Luxury Collection Hotel, Mumbai')).toBe('ITC Grand Central');
+      expect(entityResolver.cleanEntityName('Apollo Hospital, Bangalore')).toBe('Apollo');
+    });
+
+    it('uses fuzzy Levenshtein and token matching in searchMcaRegistry', async () => {
+      const match = await financialEvidenceProvider.searchMcaRegistry('The Oberoi Hotel Mumbai');
+      expect(match).not.toBeNull();
+      expect(match?.entityName).toContain('EIH Limited');
+      expect(match?.matchingConfidence).toBeGreaterThanOrEqual(0.85);
+    });
+
+    it('gracefully categorizes unindexed businesses as FINANCIAL_DATA_NOT_INDEXED', async () => {
+      const evidence = await financialEvidenceProvider.getFinancialEvidence('NonExistentCornerDiner12345', 'India');
+      expect(evidence.length).toBe(0);
+
+      const evalResult = evaluateFinancialEligibility(evidence, { businessName: 'NonExistentCornerDiner12345', country: 'India' });
+      expect(evalResult.eligibilityState).toBe('INSUFFICIENT_EVIDENCE');
+      expect(evalResult.isQualified).toBe(false);
+    });
+
+    it('prevents independent dealerships/repairs from claiming corporate parent filings', () => {
+      const confidence = calculateEntityMatchConfidence('Downtown Ford Dealership', 'FORD MOTOR CO');
+      expect(confidence).toBeLessThan(0.80);
     });
   });
 });

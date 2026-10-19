@@ -91,6 +91,7 @@ export class LeadPilotOrchestrator {
       NOT_PROCESSED_BEFORE_DEADLINE: 0,
       TRANSIENT_FAILURE: 0,
       FILTER_MISMATCH: 0,
+      FINANCIAL_DATA_NOT_INDEXED: 0,
       INSUFFICIENT_FINANCIAL_EVIDENCE: 0,
       BELOW_FINANCIAL_THRESHOLD: 0,
     };
@@ -642,26 +643,27 @@ export class LeadPilotOrchestrator {
           email: b.email,
           websiteUrl: b.website,
           websiteStatus: webClass.status,
-          rejectionReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
-          rejectionDetails: 'Excluded: Reliable public financial evidence (filings/disclosures) was unavailable',
+          rejectionReason: 'FINANCIAL_DATA_NOT_INDEXED',
+          rejectionDetails: 'Excluded: Reliable public financial evidence was not indexed (filings unavailable for entity or parent company)',
         });
+        job.rejectionReasons.FINANCIAL_DATA_NOT_INDEXED = (job.rejectionReasons.FINANCIAL_DATA_NOT_INDEXED || 0) + 1;
         job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE = (job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) + 1;
 
         logger.info({
           jobId: job.id,
           actorId: 'financial_diagnostics',
-          message: `Financial Qualification Rejected: ${b.businessName} (Insufficient Evidence - Public filings unavailable)`,
+          message: `Financial Qualification Rejected: ${b.businessName} (Financial Data Not Indexed - Public filings unavailable)`,
           extra: {
             candidateName: b.businessName,
             normalizedCountry: (b as any).country || criteria.country || 'India',
             normalizedState: b.state,
             normalizedCity: b.city,
             normalizedCategory: b.category,
-            exactReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
+            exactReason: 'FINANCIAL_DATA_NOT_INDEXED',
             details: financialEval.qualificationExplanation,
           },
         });
-        console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Insufficient financial evidence (No public SEC/MCA filings)`);
+        console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Financial data not indexed (No public SEC/MCA filings found for entity or corporate parent)`);
         return null;
       }
 
@@ -1927,8 +1929,8 @@ export class LeadPilotOrchestrator {
           job.statusReason = `Discovered ${job.discovered} candidates, but all were rejected for location or category mismatch. Zero candidates reached financial evaluation.`;
         } else if ((job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) > 0) {
           job.statusReason = `Discovered ${job.discovered} businesses with official financial records, but verified net worth was below the ₹70 Crore INR threshold. Zero businesses met the qualification threshold.`;
-        } else if ((job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) > 0) {
-          job.statusReason = `Discovered ${job.discovered} candidate businesses, but none had verifiable public financial filings or registry disclosures (SEC EDGAR, MCA, SEDAR+). All candidates were excluded as Insufficient Evidence.`;
+        } else if ((job.rejectionReasons.FINANCIAL_DATA_NOT_INDEXED || job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) > 0) {
+          job.statusReason = `Discovered ${job.discovered} candidate businesses, but none had verifiable public financial filings or registry disclosures (SEC EDGAR, MCA, SEDAR+). All candidates were excluded as Financial Data Not Indexed.`;
         } else {
           job.statusReason = locationOrCategoryRejections > 0
             ? `0 leads met selected criteria (${locationOrCategoryRejections} candidate(s) rejected for location or category mismatch).`

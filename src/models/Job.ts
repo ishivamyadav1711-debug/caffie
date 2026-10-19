@@ -24,6 +24,7 @@ export interface RejectionBreakdown {
   TRANSIENT_FAILURE?: number;
   FILTER_MISMATCH?: number;
   INSUFFICIENT_FINANCIAL_EVIDENCE?: number;
+  FINANCIAL_DATA_NOT_INDEXED?: number;
   BELOW_FINANCIAL_THRESHOLD?: number;
 }
 
@@ -85,6 +86,7 @@ export interface RejectedCandidateItem {
     | 'TRANSIENT_FAILURE'
     | 'FILTER_MISMATCH'
     | 'INSUFFICIENT_FINANCIAL_EVIDENCE'
+    | 'FINANCIAL_DATA_NOT_INDEXED'
     | 'BELOW_FINANCIAL_THRESHOLD';
   reason?: string;
   rejectionDetails?: string;

@@ -914,9 +914,9 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                 <span className="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-medium">
                   MISSING_NAME: <strong>{rejectionReasons?.MISSING_NAME ?? 0}</strong>
                 </span>
-                {(rejectionReasons?.INSUFFICIENT_FINANCIAL_EVIDENCE ?? 0) > 0 && (
+                {((rejectionReasons?.FINANCIAL_DATA_NOT_INDEXED ?? 0) > 0 || (rejectionReasons?.INSUFFICIENT_FINANCIAL_EVIDENCE ?? 0) > 0) && (
                   <span className="px-2.5 py-1 rounded-md bg-violet-50 text-violet-800 border border-violet-200 font-medium">
-                    INSUFFICIENT_FINANCIAL_EVIDENCE: <strong>{rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE}</strong>
+                    FINANCIAL_DATA_NOT_INDEXED: <strong>{(rejectionReasons?.FINANCIAL_DATA_NOT_INDEXED ?? rejectionReasons?.INSUFFICIENT_FINANCIAL_EVIDENCE) ?? 0}</strong>
                   </span>
                 )}
                 {(rejectionReasons?.BELOW_FINANCIAL_THRESHOLD ?? 0) > 0 && (
@@ -997,7 +997,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                                 ? 'bg-rose-50 text-rose-700 border border-rose-200'
                                 : candidate.rejectionReason === 'WEBSITE_UNREACHABLE'
                                 ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                                : candidate.rejectionReason === 'INSUFFICIENT_FINANCIAL_EVIDENCE'
+                                : candidate.rejectionReason === 'FINANCIAL_DATA_NOT_INDEXED' || candidate.rejectionReason === 'INSUFFICIENT_FINANCIAL_EVIDENCE'
                                 ? 'bg-violet-50 text-violet-700 border border-violet-200'
                                 : candidate.rejectionReason === 'BELOW_FINANCIAL_THRESHOLD'
                                 ? 'bg-amber-100 text-amber-800 border border-amber-300'
@@ -1116,14 +1116,23 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                               DEMO
                             </span>
                           )}
-                          {lead.financialEligibility?.isQualified && (
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-violet-100 text-violet-800 border border-violet-300 shadow-2xs"
-                              title={lead.financialEligibility.qualificationExplanation}
-                            >
-                              ₹70+ Cr Net Worth
-                            </span>
-                          )}
+                          {lead.financialEligibility ? (
+                            lead.financialEligibility.isQualified ? (
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-violet-100 text-violet-800 border border-violet-300 shadow-2xs"
+                                title={lead.financialEligibility.qualificationExplanation}
+                              >
+                                ₹70+ Cr Net Worth
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
+                                title={lead.financialEligibility.qualificationExplanation || 'Public financial filings or MCA disclosures were not indexed for this entity'}
+                              >
+                                Net Worth: Unverified
+                              </span>
+                            )
+                          ) : null}
                         </div>
                         {lead.category && (
                           <span className="text-[11px] text-[#64748B] capitalize">
