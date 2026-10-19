@@ -152,6 +152,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
   private static simulateQuotaExceeded: boolean = false;
   private static simulateAuthFailed: boolean = false;
   private static simulateResults: RawDiscoveredBusiness[] | null = null;
+  private static sessionDeliveredPlaceIds: Map<string, Set<string>> = new Map();
 
   public static setSimulateTimeout(simulate: boolean): void {
     RapidApiDiscoveryProvider.simulateTimeout = simulate;
@@ -171,6 +172,10 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
 
   public static getSimulateResults(): RawDiscoveredBusiness[] | null {
     return RapidApiDiscoveryProvider.simulateResults;
+  }
+
+  public static clearSessionDeliveredPlaceIds(): void {
+    RapidApiDiscoveryProvider.sessionDeliveredPlaceIds.clear();
   }
 
   public isConfigured(): boolean {
@@ -454,7 +459,38 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       const maxLimit = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
       const batchLimit = params.limit ? Math.min(params.limit, maxLimit) : maxLimit;
       const offset = Math.max(Number(params.offset) || 0, 0);
-      const clampedSimList = simList.slice(offset, offset + batchLimit);
+      const sessionKey = `${countryParam.toLowerCase()}:${params.state.toLowerCase()}:${(params.city || '').toLowerCase()}:${effectiveIndustry.toLowerCase()}`;
+      if (offset === 0) {
+        RapidApiDiscoveryProvider.sessionDeliveredPlaceIds.set(sessionKey, new Set<string>());
+      }
+      const seenPlaceIds = RapidApiDiscoveryProvider.sessionDeliveredPlaceIds.get(sessionKey) || new Set<string>();
+
+      let clampedSimList: RawDiscoveredBusiness[] = [];
+      if (offset > 0) {
+        const unseen = simList.filter(
+          (b) => !seenPlaceIds.has(String(b.googlePlaceId || b.sourceId || b.businessName || '').toLowerCase().trim())
+        );
+        if (unseen.length > 0) {
+          const shuffled = [...unseen];
+          for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+          }
+          clampedSimList = shuffled.slice(0, batchLimit);
+        } else if (simList.length > offset) {
+          clampedSimList = simList.slice(offset, offset + batchLimit);
+        } else {
+          clampedSimList = [];
+        }
+      } else {
+        clampedSimList = simList.slice(0, batchLimit);
+      }
+
+      for (const b of clampedSimList) {
+        seenPlaceIds.add(String(b.googlePlaceId || b.sourceId || b.businessName || '').toLowerCase().trim());
+      }
+      RapidApiDiscoveryProvider.sessionDeliveredPlaceIds.set(sessionKey, seenPlaceIds);
+
       const isExhausted = clampedSimList.length === 0 && offset > 0;
       return {
         providerId: this.providerId,
@@ -465,7 +501,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         sourceComplete: clampedSimList.length > 0,
         status: clampedSimList.length > 0 ? 'SUCCESS' : 'NO_RESULTS',
         statusReason: isExhausted
-          ? 'No more businesses found in this area. Try a different location or category.'
+          ? 'No more new businesses found in this area. Try expanding your search location.'
           : `Discovered ${clampedSimList.length} places via RapidAPI Maps Data (Simulated).`,
         pagesRequested: 1,
         errors: [],
@@ -606,7 +642,13 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       const targetLimit = Math.min(Math.max(params.limit || (isHnwActive ? 25 : 10), 1), maxLeadsAllowed);
       const requestedOffset = Math.max(Number(params.offset) || 0, 0);
       const requestedPage = params.page || Math.floor(requestedOffset / targetLimit) + 1;
-      const apiLimit = requestedOffset > 0 ? Math.min(targetLimit + requestedOffset, 100) : targetLimit;
+      const apiLimit = requestedOffset > 0 ? Math.max(Math.min(targetLimit + requestedOffset, 100), 30) : targetLimit;
+
+      const sessionKey = `${countryParam.toLowerCase()}:${params.state.toLowerCase()}:${(params.city || '').toLowerCase()}:${effectiveIndustry.toLowerCase()}`;
+      if (requestedOffset === 0) {
+        RapidApiDiscoveryProvider.sessionDeliveredPlaceIds.set(sessionKey, new Set<string>());
+      }
+      const seenPlaceIds = RapidApiDiscoveryProvider.sessionDeliveredPlaceIds.get(sessionKey) || new Set<string>();
 
       const { url, hostHeader } = this.resolveGatewayEndpoint();
 
@@ -691,9 +733,29 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         rawItems = discoveryResult;
       }
 
-      // If the provider returned results from index 0 instead of honoring the offset directly,
-      // slice based on requestedOffset to ensure paginated non-duplicate results
-      if (requestedOffset > 0 && rawItems.length > targetLimit) {
+      const getPlaceId = (item: any) =>
+        String(item.place_id || item.business_id || item.google_id || item.id || item.name || '').trim().toLowerCase();
+
+      // Randomness / Fallback: If offset > 0, detect if items were already seen in this session
+      if (requestedOffset > 0 && rawItems.length > 0) {
+        const unseenItems = rawItems.filter((item) => {
+          const pid = getPlaceId(item);
+          return pid && !seenPlaceIds.has(pid);
+        });
+
+        if (unseenItems.length > 0) {
+          // Randomly sample targetLimit unseen candidates
+          for (let i = unseenItems.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [unseenItems[i], unseenItems[j]] = [unseenItems[j], unseenItems[i]];
+          }
+          rawItems = unseenItems.slice(0, targetLimit);
+        } else if (rawItems.length > requestedOffset) {
+          rawItems = rawItems.slice(requestedOffset, requestedOffset + targetLimit);
+        } else {
+          rawItems = [];
+        }
+      } else if (requestedOffset > 0 && rawItems.length > targetLimit) {
         rawItems = rawItems.slice(requestedOffset, requestedOffset + targetLimit);
       }
 
@@ -755,12 +817,17 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         seenIds.add(normalized.sourceId);
 
         businesses.push(normalized);
+        seenPlaceIds.add(normalized.sourceId.toLowerCase());
+        if (normalized.googlePlaceId) seenPlaceIds.add(normalized.googlePlaceId.toLowerCase());
+        if (normalized.businessName) seenPlaceIds.add(normalized.businessName.toLowerCase().trim());
 
         // Strict clamp to targetLimit
         if (businesses.length >= targetLimit) {
           break;
         }
       }
+
+      RapidApiDiscoveryProvider.sessionDeliveredPlaceIds.set(sessionKey, seenPlaceIds);
 
       logger.info({
         actorId: 'rapidapi_discovery',
@@ -779,7 +846,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         businesses.length > 0
           ? `Discovered ${businesses.length} verified businesses via RapidAPI Maps Data.`
           : requestedOffset > 0
-          ? 'No more businesses found in this area. Try a different location or category.'
+          ? 'No more new businesses found in this area. Try expanding your search location.'
           : `RapidAPI queried successfully but returned zero results for ${params.industry} in ${resolvedArea}.`;
 
       return {

@@ -65,6 +65,8 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
 }) => {
   // Offset tracking for sequential pagination
   const [currentOffset, setCurrentOffset] = useState<number>(propOffset ?? initialCriteria?.offset ?? 0);
+  const [lastSearchSignature, setLastSearchSignature] = useState<string>('');
+  const lastExecutedOffsetRef = React.useRef<number>(-1);
   const lastCriteriaKeyRef = React.useRef<string>('');
 
   React.useEffect(() => {
@@ -229,23 +231,75 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
 
   const isSearching = isSearchingExternal;
 
+  const computeCurrentSignature = React.useCallback(() => {
+    const isAllCities =
+      activeCity.toLowerCase().startsWith('all cities') ||
+      activeCity.toLowerCase().includes('all cities in');
+    const normCity = isAllCities ? '' : activeCity.trim().toLowerCase();
+    return [
+      selectedCountry.toLowerCase(),
+      selectedState.trim().toLowerCase(),
+      normCity,
+      activeIndustry.trim().toLowerCase(),
+      contact,
+      website,
+      Boolean(highNetWorthFilter),
+      minRating ?? '',
+      minReviews ?? '',
+      Boolean(excludePerfectRating),
+      Boolean(requirePositiveReviewEvidence),
+      reviewSort || 'default',
+    ].join('::');
+  }, [
+    selectedCountry,
+    selectedState,
+    activeCity,
+    activeIndustry,
+    contact,
+    website,
+    highNetWorthFilter,
+    minRating,
+    minReviews,
+    excludePerfectRating,
+    requirePositiveReviewEvidence,
+    reviewSort,
+  ]);
+
+  const currentSignature = computeCurrentSignature();
+  const isRepeatSearch = Boolean(lastSearchSignature && currentSignature === lastSearchSignature);
+
   const handleStartSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (isSearching) return;
 
-    const isAllCities =
-      activeCity.toLowerCase().startsWith('all cities') ||
-      activeCity.toLowerCase().includes('all cities in');
+    const currentSig = computeCurrentSignature();
+    const isRepeat = Boolean(lastSearchSignature && currentSig === lastSearchSignature);
 
-    const currentKey = `${selectedCountry}:${selectedState}:${isAllCities ? '' : activeCity}:${activeIndustry}:${contact}:${website}:${limit}:${Boolean(highNetWorthFilter)}`;
-    const isSameCriteria = lastCriteriaKeyRef.current === currentKey;
-    const nextOffset = isSameCriteria ? currentOffset : 0;
+    let nextOffset = 0;
+    if (isRepeat) {
+      // Repeat search: DO NOT reset offset. Increment offset by the batch size
+      if (currentOffset > (lastExecutedOffsetRef.current >= 0 ? lastExecutedOffsetRef.current : -1)) {
+        nextOffset = currentOffset;
+      } else {
+        nextOffset = (lastExecutedOffsetRef.current >= 0 ? lastExecutedOffsetRef.current : currentOffset) + Number(limit);
+      }
+      lastExecutedOffsetRef.current = nextOffset;
+      setCurrentOffset(nextOffset);
+    } else {
+      // New search: Reset offset = 0
+      nextOffset = 0;
+      lastExecutedOffsetRef.current = 0;
+      setCurrentOffset(0);
+      setLastSearchSignature(currentSig);
+    }
 
     if (onSearchStart) {
       onSearchStart(nextOffset > 0);
     }
 
-    lastCriteriaKeyRef.current = currentKey;
+    const isAllCities =
+      activeCity.toLowerCase().startsWith('all cities') ||
+      activeCity.toLowerCase().includes('all cities in');
 
     const criteria: LeadFilterCriteria = {
       country: selectedCountry,
@@ -583,15 +637,14 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
                 <Loader2 className="h-4 w-4 animate-spin text-teal-400" />
                 <span>Searching RapidAPI &amp; OSM...</span>
               </>
+            ) : isRepeatSearch ? (
+              <>
+                <span>Find More Leads</span>
+                <ArrowRight className="h-4 w-4 text-teal-400" />
+              </>
             ) : (
               <>
-                <span>
-                  {lastCriteriaKeyRef.current &&
-                  lastCriteriaKeyRef.current === `${selectedCountry}:${selectedState}:${activeCity.toLowerCase().startsWith('all cities') || activeCity.toLowerCase().includes('all cities in') ? '' : activeCity}:${activeIndustry}:${contact}:${website}:${limit}:${Boolean(highNetWorthFilter)}` &&
-                  currentOffset > 0
-                    ? `Find Next Batch (+${limit})`
-                    : 'Find Leads'}
-                </span>
+                <span>Find Leads</span>
                 <ArrowRight className="h-4 w-4 text-teal-400" />
               </>
             )}

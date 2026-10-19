@@ -88,8 +88,8 @@ export class ProviderManager {
     const isHnw = Boolean(params.highNetWorthFilter || params.highNetWorthOnly);
     const maxLeadsLimit = isHnw ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
     const requestedLimit = Math.min(Math.max(Number(params.limit) || (isHnw ? 25 : 10), 1), maxLeadsLimit);
-    // Bounded candidate pool respecting max leads ceiling
-    const targetPool = requestedLimit;
+    // Bounded candidate pool respecting max leads ceiling, allowing expanded pool (up to 30) on repeat searches
+    const targetPool = (params.offset && params.offset > 0) ? Math.max(requestedLimit, 30) : requestedLimit;
 
     const health: SystemProvidersHealth = providerHealthService.checkHealth();
 

@@ -13,13 +13,17 @@ import { performanceTracker } from '@/lib/metrics/PerformanceTracker';
 export class OSMOverpassProvider implements BusinessDiscoveryProvider {
   readonly providerId = 'osm';
   readonly name = 'OpenStreetMap Overpass Engine';
+  private static sessionDeliveredOsmIds: Map<string, Set<string>> = new Map();
+
+  public static clearSessionDeliveredOsmIds(): void {
+    OSMOverpassProvider.sessionDeliveredOsmIds.clear();
+  }
 
   public async discoverBusinesses(params: SearchDiscoveryParams): Promise<DiscoveryResult> {
     const startTime = Date.now();
     const resolvedAreaName = params.city ? `${params.city}, ${params.state}` : params.state;
     const timeouts = getTimeoutConfig();
 
-    // 0. Configuration check
     // 0. Configuration check
     if (process.env.OSM_ENABLED === 'false') {
       return {
@@ -48,6 +52,9 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
 
       // 3. Circuit breaker + bounded timeout (aligned with ProviderManager 10s budget)
       const effectiveTimeout = Math.max(timeouts.osmFastMs || 8000, 8000);
+      const requestedOffset = Math.max(Number(params.offset) || 0, 0);
+      const requestedLimit = params.limit || 20;
+
       const discovery = await osmCircuitBreaker.execute(async () => {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => {
@@ -56,13 +63,12 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
           }, effectiveTimeout)
         );
 
-        const requestedOffset = Math.max(Number(params.offset) || 0, 0);
         const queryPromise = queryOverpassBusinesses({
           industry: params.industry,
           state: params.state,
           city: params.city,
           bbox: bbox as any,
-          limit: Math.max((params.limit || 50) + requestedOffset, 25),
+          limit: Math.max((params.limit || 50) + requestedOffset, 30),
         });
 
         return await Promise.race([queryPromise, timeoutPromise]);
@@ -112,14 +118,42 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
         };
       });
 
-      const requestedOffset = Math.max(Number(params.offset) || 0, 0);
-      const businesses = requestedOffset > 0
-        ? rawDiscovered.slice(requestedOffset, requestedOffset + (params.limit || 20))
-        : rawDiscovered;
+      const sessionKey = `${(params.country || 'India').toLowerCase()}:${params.state.toLowerCase()}:${(params.city || '').toLowerCase()}:${params.industry.toLowerCase()}`;
+      if (requestedOffset === 0) {
+        OSMOverpassProvider.sessionDeliveredOsmIds.set(sessionKey, new Set<string>());
+      }
+      const seenOsmIds = OSMOverpassProvider.sessionDeliveredOsmIds.get(sessionKey) || new Set<string>();
+
+      let businesses: RawDiscoveredBusiness[] = [];
+      if (requestedOffset > 0) {
+        const unseen = rawDiscovered.filter((b) => {
+          const id = String(b.osmId || b.sourceId || b.businessName || '').toLowerCase().trim();
+          return !seenOsmIds.has(id);
+        });
+
+        if (unseen.length > 0) {
+          for (let i = unseen.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [unseen[i], unseen[j]] = [unseen[j], unseen[i]];
+          }
+          businesses = unseen.slice(0, requestedLimit);
+        } else if (rawDiscovered.length > requestedOffset) {
+          businesses = rawDiscovered.slice(requestedOffset, requestedOffset + requestedLimit);
+        } else {
+          businesses = [];
+        }
+      } else {
+        businesses = rawDiscovered.slice(0, requestedLimit);
+      }
+
+      for (const b of businesses) {
+        const id = String(b.osmId || b.sourceId || b.businessName || '').toLowerCase().trim();
+        seenOsmIds.add(id);
+      }
+      OSMOverpassProvider.sessionDeliveredOsmIds.set(sessionKey, seenOsmIds);
 
       const durationMs = Date.now() - startTime;
       const rawCount = businesses.length;
-      const requestedLimit = params.limit || 20;
       const status: 'SUCCESS' | 'PARTIAL' | 'NO_RESULTS' =
         rawCount >= requestedLimit ? 'SUCCESS' : rawCount > 0 ? 'PARTIAL' : 'NO_RESULTS';
 
@@ -135,7 +169,7 @@ export class OSMOverpassProvider implements BusinessDiscoveryProvider {
           rawCount > 0
             ? `Discovered ${rawCount} real candidates from OpenStreetMap.`
             : requestedOffset > 0
-            ? 'No more businesses found in this area. Try a different location or category.'
+            ? 'No more new businesses found in this area. Try expanding your search location.'
             : `OpenStreetMap found zero business records for ${params.industry} in ${resolvedAreaName}.`,
         queryUsed: discovery.queryUsed,
         endpointUsed: discovery.endpointUsed,

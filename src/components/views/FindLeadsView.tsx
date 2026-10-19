@@ -75,7 +75,7 @@ export const FindLeadsView: React.FC<FindLeadsViewProps> = ({
         if (data.leads.length === 0 && nextOffset > 0) {
           onShowToast(
             'Discovery Complete',
-            data.statusReason || 'No more businesses found in this area. Try a different location or category.',
+            data.statusReason || 'No more new businesses found in this area. Try expanding your search location.',
             'info'
           );
           return;
@@ -104,7 +104,7 @@ export const FindLeadsView: React.FC<FindLeadsViewProps> = ({
           data.statusReason ||
           data.error ||
           (nextOffset > 0
-            ? 'No more businesses found in this area. Try a different location or category.'
+            ? 'No more new businesses found in this area. Try expanding your search location.'
             : 'Pipeline run returned no candidates.');
         onShowToast('Discovery Notice', noMoreMsg, 'warning');
       }

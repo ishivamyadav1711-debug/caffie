@@ -235,7 +235,7 @@ export default function DashboardClient() {
             addToast('Next Batch Loaded', `Found ${initialData.leads.length} new businesses.`, 'success');
           } else {
             const noMoreMsg =
-              initialData.statusReason || 'No more businesses found in this area. Try a different location or category.';
+              initialData.statusReason || 'No more new businesses found in this area. Try expanding your search location.';
             setStatusReason(noMoreMsg);
             addToast('Search Complete', noMoreMsg, 'info');
           }
@@ -355,7 +355,7 @@ export default function DashboardClient() {
                 addToast('Next Batch Loaded', `Found ${resultsData.leads.length} new businesses.`, 'success');
               } else {
                 const noMoreMsg =
-                  resultsData.statusReason || 'No more businesses found in this area. Try a different location or category.';
+                  resultsData.statusReason || 'No more new businesses found in this area. Try expanding your search location.';
                 setStatusReason(noMoreMsg);
                 addToast('Search Complete', noMoreMsg, 'info');
               }

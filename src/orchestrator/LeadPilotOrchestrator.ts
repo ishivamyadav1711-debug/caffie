@@ -1182,7 +1182,9 @@ export class LeadPilotOrchestrator {
           job.statusReason = `Found ${X} verified ${X === 1 ? 'lead' : 'leads'}. Searched thoroughly but could not find ${Y} more in this area. Try a broader location.`;
         } else {
           job.sourceStatus = 'NO_RESULTS';
-          if (totalRawDiscovered === 0) {
+          if (requestedOffset > 0) {
+            job.statusReason = 'No more new businesses found in this area. Try expanding your search location.';
+          } else if (totalRawDiscovered === 0) {
             job.statusReason = 'No matching candidates found in the specified location and industry.';
           } else {
             job.statusReason = `Found 0 verified leads. Searched thoroughly but could not find ${requestedLimit} more in this area. Try a broader location.`;
@@ -1912,7 +1914,7 @@ export class LeadPilotOrchestrator {
             'Provider failure: Search provider encountered an error or quota exhaustion while querying candidates.';
         } else if (requestedOffset > 0 && (job.discovered === 0 || deliveredEntities.length === 0)) {
           job.statusReason =
-            'No more businesses found in this area. Try a different location or category.';
+            'No more new businesses found in this area. Try expanding your search location.';
         } else if (job.discovered === 0) {
           job.statusReason =
             'No matching candidates found in the specified location and industry.';

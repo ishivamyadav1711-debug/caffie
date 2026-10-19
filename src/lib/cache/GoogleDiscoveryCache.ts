@@ -37,7 +37,21 @@ export class GoogleDiscoveryCache {
   }
 
   /**
+   * Generates a 32-bit FNV-1a deterministic hex hash string.
+   */
+  public hashSignature(str: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = (hash * 0x01000193) >>> 0;
+    }
+    return hash.toString(16).padStart(8, '0');
+  }
+
+  /**
    * Generates a normalized search key for query caching and in-flight deduplication.
+   * Format: hash(signature) + ":offset:" + offset
+   * Ensures searches with offset=5 never return cached results of offset=0.
    */
   public generateSearchKey(params: {
     industry: string;
@@ -50,20 +64,24 @@ export class GoogleDiscoveryCache {
     contactFilter?: string;
     websiteFilter?: string;
     highNetWorthFilter?: boolean;
+    searchSignature?: string;
   }): string {
     const norm = (s?: string) => (s ? s.trim().toLowerCase().replace(/\s+/g, '_') : '');
-    return [
-      'g_disc_v4',
+    const offset = Math.max(Number(params.offset) || 0, 0);
+
+    const signature = params.searchSignature || [
       norm(params.industry),
       norm(params.country || 'india'),
       norm(params.state),
       norm(params.city || 'all'),
       norm(params.contactFilter || 'all'),
       norm(params.websiteFilter || 'any'),
-      params.limit || 50,
-      params.offset || 0,
+      params.limit || 5,
       params.highNetWorthFilter ? 'hnw' : 'standard',
     ].join(':');
+
+    const sigHash = this.hashSignature(signature);
+    return `${sigHash}:offset:${offset}`;
   }
 
   /**
