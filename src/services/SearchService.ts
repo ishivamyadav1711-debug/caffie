@@ -77,6 +77,7 @@ export class SearchService {
       searchStatus: job.sourceStatus,
       sourceComplete: job.sourceComplete,
       statusReason: job.statusReason,
+      nextOffset: job.nextOffset ?? ((job.criteria.offset || 0) + (job.criteria.limit || 20)),
       latencyMs: job.latencyMs || job.fastPathLatencyMs || 0,
       fastPathLatencyMs: job.fastPathLatencyMs || 0,
       backgroundJobsQueued: job.backgroundJobsQueued || 0,

@@ -16,18 +16,19 @@ import {
   checkBatchReachability,
   classifyCandidateWebsite,
   assertHardGuarantee,
+  CanonicalWebsiteFilter,
 } from '@/lib/audit/WebsiteStatusClassifier';
 import { extractBatchEmailsForCandidates } from '@/utils/emailUtils';
 import { normalizePhone } from '@/utils/phoneUtils';
 import { calculateLeadScore } from '@/lib/scoring/leadScoreCalculator';
 
 import { contactEnrichmentPipeline, ContactEnrichmentOutput } from '@/lib/providers/contactEnrichmentPipeline';
-import { normalizeContactFilter, evaluateContactFilter, assessContactQuality, CanonicalContact } from '@/lib/providers/contactTypes';
+import { normalizeContactFilter, evaluateContactFilter, assessContactQuality, CanonicalContact, ExtendedContactFilterType } from '@/lib/providers/contactTypes';
 import { financialEvidenceProvider } from '@/lib/financial/FinancialEvidenceProvider';
 import { evaluateFinancialEligibility } from '@/lib/financial/financialEvidenceEvaluator';
 
 // Blocking Fast Path Actors
-import { businessDiscoveryActor } from '@/actors/BusinessDiscoveryActor';
+import { businessDiscoveryActor, BusinessDiscoveryOutput } from '@/actors/BusinessDiscoveryActor';
 import { multiSourceMergeActor } from '@/actors/MultiSourceMergeActor';
 import { locationVerificationActor } from '@/actors/LocationVerificationActor';
 import { businessVerificationActor } from '@/actors/BusinessVerificationActor';
@@ -198,6 +199,517 @@ export class LeadPilotOrchestrator {
   }
 
   /**
+   * Helper to evaluate a candidate business against website, contact, review, and financial filters.
+   */
+  private async evaluateCandidate(
+    b: any,
+    job: Job,
+    criteria: any,
+    verifiedCity: string | undefined,
+    verifiedState: string,
+    verifiedCountry: string,
+    userWebsiteFilter: CanonicalWebsiteFilter,
+    normContact: ExtendedContactFilterType,
+    reachabilityMap: Map<string, any>,
+    rejectedCandidatesList: any[]
+  ): Promise<LeadEntity | null> {
+    // Evaluate Website Reachability & Filter
+    const reachCheck = b.website ? reachabilityMap.get(b.website) : undefined;
+    const webClass = classifyCandidateWebsite(b.website, userWebsiteFilter, reachCheck);
+
+    if (!webClass.matchesFilter) {
+      rejectedCandidatesList.push({
+        name: b.businessName,
+        category: b.category,
+        city: b.city,
+        state: b.state,
+        phone: b.phone,
+        email: b.email,
+        websiteUrl: b.website,
+        websiteStatus: webClass.status,
+        rejectionReason: (webClass.rejectionReason as any) || 'WEBSITE_FILTER_MISMATCH',
+        rejectionDetails: webClass.rejectionDetails || `Failed website filter: ${userWebsiteFilter}`,
+      });
+
+      if (webClass.rejectionReason === 'HAS_WEBSITE') job.rejectionReasons.HAS_WEBSITE++;
+      else if (webClass.rejectionReason === 'NO_WEBSITE') job.rejectionReasons.NO_WEBSITE++;
+      else if (webClass.rejectionReason === 'WEBSITE_UNREACHABLE') job.rejectionReasons.WEBSITE_UNREACHABLE++;
+      else if (webClass.rejectionReason === 'WEBSITE_WORKING') job.rejectionReasons.OTHER++;
+      else if (webClass.rejectionReason === 'NO_IMPROVEMENT_OPPORTUNITY') job.rejectionReasons.AUDIT_FAILED++;
+      else job.rejectionReasons.OTHER++;
+
+      return null;
+    }
+
+    // Assemble Qualified Lead Entity with Verified Provenance
+    const leadId = `lead_${b.sourceId ? b.sourceId.replace(/[^a-zA-Z0-9_-]/g, '_') : Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+
+    const emailSource = (b as any).emailSourceUrl
+      ? 'official_website'
+      : b.source === 'osm' || b.source === 'openstreetmap'
+      ? 'openstreetmap'
+      : b.email
+      ? 'official_website'
+      : b.source || 'google_places';
+
+    // --- Section 6 & 7: Google Data First & Contact Filter Fast Path ---
+    const normPhone = normalizePhone(b.phone, criteria.country);
+    const normEmail = b.email && b.email.includes('@') ? b.email.trim().toLowerCase() : undefined;
+
+    const satisfiedByExistingData =
+      (normContact === 'ALL_CONTACTS') ||
+      (normContact === 'PHONE_OR_EMAIL' && (normPhone || normEmail)) ||
+      (normContact === 'PHONE_ONLY' && normPhone) ||
+      (normContact === 'VERIFIED_PHONE' && normPhone) ||
+      (normContact === 'EMAIL_ONLY' && normEmail) ||
+      (normContact === 'EMAIL_AND_PHONE' && normPhone && normEmail);
+
+    const contacts: ContactItem[] = [];
+    const verifiedStatuses = new Set(['VERIFIED', 'MOBILE', 'LANDLINE']);
+    let enrichmentOutput: ContactEnrichmentOutput | undefined;
+
+    if (satisfiedByExistingData) {
+      if (normPhone) {
+        contacts.push({
+          value: normPhone,
+          type: 'phone',
+          source: b.source || 'google_places',
+          sourceType: b.source || 'google_places',
+          sourceUrl: (b as any).emailSourceUrl || b.sourceUrl || (b.source === 'google_places' ? `https://www.google.com/maps/place/?q=place_id:${b.sourceId}` : undefined),
+          confidence: 'verified',
+          verified: true,
+        });
+      }
+      if (normEmail) {
+        contacts.push({
+          value: normEmail,
+          type: 'email',
+          source: emailSource,
+          sourceType: emailSource,
+          sourceUrl: (b as any).emailSourceUrl || b.website || b.sourceUrl,
+          confidence: 'verified',
+          verified: true,
+        });
+      }
+    } else {
+      try {
+        const enrichPromise = contactEnrichmentPipeline.enrichAndVerify({
+          businessId: leadId,
+          businessName: b.businessName,
+          phone: b.phone,
+          email: b.email,
+          websiteUrl: b.website,
+          source: emailSource,
+          sourceUrl: (b as any).emailSourceUrl || b.sourceUrl || (b.source === 'google_places' ? `https://www.google.com/maps/place/?q=place_id:${b.sourceId}` : undefined),
+          contactFilter: criteria.contactFilter,
+          crawlResult: (b as any).crawlResult ? {
+            extractedEmails: (b as any).crawlResult.extractedEmails || [],
+            extractedPhones: (b as any).crawlResult.extractedPhones || [],
+            finalUrl: (b as any).crawlResult.finalUrl,
+            pages: (b as any).crawlResult.pages,
+            socialLinks: (b as any).crawlResult.socialLinks,
+            ctas: (b as any).crawlResult.ctas,
+          } : undefined,
+        });
+
+        let timeoutHandle: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<undefined>((resolve) => {
+          timeoutHandle = setTimeout(() => resolve(undefined), 2500);
+        });
+        enrichmentOutput = await Promise.race([enrichPromise, timeoutPromise]).finally(() => {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+        });
+      } catch {
+        // Non-fatal
+      }
+
+      if (enrichmentOutput) {
+        for (const c of enrichmentOutput.contacts) {
+          if (c.contactType === 'PHONE') {
+            contacts.push({
+              value: c.normalizedValue,
+              type: 'phone',
+              source: c.source,
+              sourceType: c.sourceProvider || c.source,
+              sourceUrl: c.sourceUrl,
+              confidence: verifiedStatuses.has(c.verificationStatus) ? 'verified' : (c.confidence >= 0.6 ? 'high' : 'medium'),
+              verified: verifiedStatuses.has(c.verificationStatus),
+            });
+          } else if (c.contactType === 'EMAIL') {
+            contacts.push({
+              value: c.normalizedValue,
+              type: 'email',
+              source: c.source,
+              sourceType: c.sourceProvider || c.source,
+              sourceUrl: c.sourceUrl,
+              confidence: c.verificationStatus === 'VERIFIED' ? 'verified' : (c.confidence >= 0.6 ? 'high' : 'medium'),
+              verified: c.verificationStatus === 'VERIFIED',
+            });
+          } else if (c.contactType === 'WHATSAPP' || c.contactType === 'CONTACT_FORM') {
+            contacts.push({
+              value: c.normalizedValue,
+              type: c.contactType === 'WHATSAPP' ? 'whatsapp' : 'contact_form',
+              source: c.source,
+              sourceType: c.sourceProvider || c.source,
+              sourceUrl: c.sourceUrl,
+              confidence: 'medium',
+              verified: false,
+            });
+          }
+        }
+      } else {
+        if (normPhone) {
+          contacts.push({
+            value: normPhone,
+            type: 'phone',
+            source: b.source || 'google_places',
+            sourceType: b.source || 'google_places',
+            confidence: 'medium',
+            verified: false,
+          });
+        }
+        if (normEmail) {
+          contacts.push({
+            value: normEmail,
+            type: 'email',
+            source: (b as any).emailSourceUrl ? 'official_website' : (b.source || 'openstreetmap'),
+            sourceType: (b as any).emailSourceUrl ? 'website' : (b.source || 'openstreetmap'),
+            sourceUrl: (b as any).emailSourceUrl || b.website,
+            confidence: 'medium',
+            verified: false,
+          });
+        }
+      }
+    }
+
+    const isCandidateMock = Boolean(
+      b.isMock ||
+      (b as any).rawTags?.isMock ||
+      (b as any).rawTags?.isMockDemo ||
+      b.confidence === 'DEMO_MOCK' ||
+      b.source === 'rapidapi (mock demo)' ||
+      b.sources?.some((s: string) => s.includes('mock'))
+    );
+
+    const resolvedSources = b.sources && b.sources.length > 0 ? b.sources : [b.source || 'rapidapi'];
+    const resolvedEvidence =
+      b.sourceEvidence && b.sourceEvidence.length > 0
+        ? b.sourceEvidence.map((ev: any) => ({
+            sourceName: ev.source || ev.sourceName || 'rapidapi',
+            sourceId: ev.sourceId,
+            rawTags: ev.rawTags,
+            observedAt: new Date().toISOString(),
+          }))
+        : [
+            {
+              sourceName: b.source || 'rapidapi',
+              sourceId: b.sourceId,
+              rawTags: b.rawTags,
+              observedAt: new Date().toISOString(),
+            },
+          ];
+
+    const rapidApiId =
+      b.rawTags?.rapidApiId ||
+      (b.source === 'rapidapi' ? b.sourceId : undefined) ||
+      b.sourceEvidence?.find((e: any) => e.source === 'rapidapi' || e.sourceName === 'rapidapi')?.sourceId;
+
+    const googlePlaceId =
+      b.rawTags?.googlePlaceId ||
+      (b.source === 'google_places' ? b.sourceId : undefined) ||
+      b.sourceEvidence?.find((e: any) => e.source === 'google_places' || e.sourceName === 'google_places')?.sourceId;
+
+    const osmId =
+      b.rawTags?.osmId
+        ? String(b.rawTags.osmId)
+        : (b.source === 'osm' || b.source === 'openstreetmap' ? b.sourceId : undefined) ||
+          b.sourceEvidence?.find((e: any) => e.source === 'osm' || e.source === 'openstreetmap' || e.sourceName === 'openstreetmap')?.sourceId;
+
+    const httpsSecure = reachCheck?.isHttps ?? (webClass.url?.startsWith('https') || false);
+    const scoreResult = calculateLeadScore({
+      businessName: b.businessName,
+      category: b.category,
+      address: b.address,
+      city: b.city || verifiedCity,
+      state: b.state || verifiedState,
+      country: (b as any).country || criteria.country || 'India',
+      phone: b.phone,
+      email: b.email,
+      website: webClass.url,
+      websiteStatus: webClass.status,
+      https: httpsSecure,
+      locationVerificationStatus: (b as any).locationVerificationStatus || 'VERIFIED',
+      businessVerificationStatus: 'VERIFIED',
+      sources: resolvedSources,
+      rawTags: b.rawTags,
+      audit: (b as any).auditResult || (b as any).websiteAudit,
+    });
+
+    const entity: LeadEntity = {
+      leadId,
+      businessName: b.businessName,
+      category: b.category,
+      industry: criteria.industry,
+      address: b.address || '',
+      city: b.city || verifiedCity || '',
+      state: b.state || verifiedState,
+      country: (b as any).country || verifiedCountry,
+      postcode: b.postalCode || b.postcode,
+      latitude: b.latitude,
+      longitude: b.longitude,
+      phone: b.phone,
+      email: b.email,
+      website: webClass.url,
+      websiteStatus: webClass.status,
+      https: httpsSecure,
+      socialLinks: {},
+      contacts,
+      isMock: isCandidateMock,
+      rapidApiId,
+      googlePlaceId: b.googlePlaceId || googlePlaceId,
+      businessVerificationStatus: 'VERIFIED',
+      locationVerificationStatus: 'VERIFIED',
+      auditIssues: isCandidateMock ? [] : webClass.detectedIssues.map((issue) => ({ issue, category: 'technical' as const, severity: 'medium' as const, evidence: issue })),
+      scoreBreakdown: scoreResult.breakdown,
+      leadScore: scoreResult.score,
+      sources: resolvedSources,
+      sourceEvidence: resolvedEvidence,
+      enrichmentStatus: 'QUALIFIED',
+      auditStatus: webClass.hasEvidenceBackedImprovement ? 'AUDITED' : 'PENDING',
+      rating: isCandidateMock ? null : (b.rating !== undefined ? b.rating : null),
+      userRatingCount: isCandidateMock ? null : (b.userRatingCount !== undefined ? b.userRatingCount : null),
+      reviewCount: isCandidateMock ? null : (b.userRatingCount !== undefined ? b.userRatingCount : null),
+      businessStatus: b.businessStatus,
+      positiveReviewDataAvailable: isCandidateMock ? false : b.positiveReviewDataAvailable,
+      positiveReviewCount: isCandidateMock ? null : b.positiveReviewCount,
+      negativeReviewCount: isCandidateMock ? null : b.negativeReviewCount,
+      neutralReviewCount: isCandidateMock ? null : b.neutralReviewCount,
+      positiveReviewRatio: isCandidateMock ? null : b.positiveReviewRatio,
+      reviews: isCandidateMock ? [] : b.reviews,
+      osmId,
+      provenance: {
+        phone: {
+          value: b.phone,
+          source: enrichmentOutput?.contacts.find(c => c.contactType === 'PHONE')?.source || contacts.find(c => c.type === 'phone')?.source || resolvedSources.join(', '),
+          verified: enrichmentOutput ? enrichmentOutput.quality.hasVerifiedPhone : contacts.some(c => c.type === 'phone' && c.verified),
+        },
+        website: { value: webClass.url, source: resolvedSources.join(', '), verified: Boolean(webClass.url) },
+        email: {
+          value: b.email,
+          source: enrichmentOutput?.contacts.find(c => c.contactType === 'EMAIL')?.source
+            || contacts.find(c => c.type === 'email')?.source
+            || (b.email ? ((b as any).emailSourceUrl ? 'official_website' : (resolvedSources.find((s: string) => s === 'openstreetmap' || s === 'osm') || 'official_website')) : 'none'),
+          verified: enrichmentOutput ? enrichmentOutput.quality.hasVerifiedEmail : contacts.some(c => c.type === 'email' && c.verified),
+        },
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (criteria.excludePerfectRating && entity.rating === 5.0) {
+      rejectedCandidatesList.push({
+        name: b.businessName,
+        category: b.category,
+        city: b.city,
+        state: b.state,
+        phone: b.phone,
+        email: b.email,
+        websiteUrl: b.website,
+        websiteStatus: webClass.status,
+        rejectionReason: 'FILTER_MISMATCH' as any,
+        rejectionDetails: 'Excluded because: Perfect 5.0 rating',
+      });
+      job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+      return null;
+    }
+
+    if (typeof criteria.minRating === 'number' && criteria.minRating > 0) {
+      if (entity.rating === null || entity.rating === undefined || entity.rating < criteria.minRating) {
+        rejectedCandidatesList.push({
+          name: b.businessName,
+          category: b.category,
+          city: b.city,
+          state: b.state,
+          phone: b.phone,
+          email: b.email,
+          websiteUrl: b.website,
+          websiteStatus: webClass.status,
+          rejectionReason: 'FILTER_MISMATCH' as any,
+          rejectionDetails: `Excluded because: Rating (${entity.rating ?? 'none'}) below minimum requirement (${criteria.minRating})`,
+        });
+        job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+        return null;
+      }
+    }
+
+    if (typeof criteria.minReviews === 'number' && criteria.minReviews > 0) {
+      const reviewsCount = entity.userRatingCount || 0;
+      if (reviewsCount < criteria.minReviews) {
+        rejectedCandidatesList.push({
+          name: b.businessName,
+          category: b.category,
+          city: b.city,
+          state: b.state,
+          phone: b.phone,
+          email: b.email,
+          websiteUrl: b.website,
+          websiteStatus: webClass.status,
+          rejectionReason: 'FILTER_MISMATCH' as any,
+          rejectionDetails: `Excluded because: Review count (${reviewsCount}) below minimum requirement (${criteria.minReviews})`,
+        });
+        job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+        return null;
+      }
+    }
+
+    if (criteria.requirePositiveReviewEvidence && !entity.positiveReviewDataAvailable) {
+      rejectedCandidatesList.push({
+        name: b.businessName,
+        category: b.category,
+        city: b.city,
+        state: b.state,
+        phone: b.phone,
+        email: b.email,
+        websiteUrl: b.website,
+        websiteStatus: webClass.status,
+        rejectionReason: 'FILTER_MISMATCH' as any,
+        rejectionDetails: 'Excluded because: Insufficient positive review evidence',
+      });
+      job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
+      return null;
+    }
+
+    const contactFilterEval = evaluateContactFilter(
+      normContact,
+      enrichmentOutput?.quality || {
+        level: (contacts.some(c => c.verified) ? 'MEDIUM' : (contacts.length > 0 ? 'LOW' : 'NONE')),
+        hasPhone: contacts.some(c => c.type === 'phone'),
+        hasEmail: contacts.some(c => c.type === 'email'),
+        hasVerifiedPhone: contacts.some(c => c.type === 'phone' && c.verified),
+        hasVerifiedEmail: contacts.some(c => c.type === 'email' && c.verified),
+        hasContact: contacts.length > 0,
+        hasVerifiedContact: contacts.some(c => c.verified),
+        phoneCount: contacts.filter(c => c.type === 'phone').length,
+        emailCount: contacts.filter(c => c.type === 'email').length,
+        verifiedPhoneCount: contacts.filter(c => c.type === 'phone' && c.verified).length,
+        verifiedEmailCount: contacts.filter(c => c.type === 'email' && c.verified).length,
+        explanation: 'Inferred from contacts list',
+      }
+    );
+
+    if (!contactFilterEval.match) {
+      rejectedCandidatesList.push({
+        name: b.businessName,
+        category: b.category,
+        city: b.city,
+        state: b.state,
+        phone: b.phone,
+        email: b.email,
+        websiteUrl: b.website,
+        websiteStatus: webClass.status,
+        rejectionReason: 'CONTACT_FILTER_MISMATCH' as any,
+        rejectionDetails: `Failed strict contact filter: ${criteria.contactFilter}`,
+      });
+      job.rejectionReasons.NO_CONTACT++;
+      if (job.rejectionReasons.CONTACT_FILTER_MISMATCH !== undefined) {
+        job.rejectionReasons.CONTACT_FILTER_MISMATCH++;
+      }
+      return null;
+    }
+
+    // Strict High-Net-Worth Business Filter (₹70 Crore INR threshold)
+    if (job.highNetWorthFilter || (criteria as any).highNetWorthOnly) {
+      const evidence = await financialEvidenceProvider.getFinancialEvidence(b.businessName, criteria.country);
+      const filterMode = (criteria as any).financialFilterMode || 'STRICT_NET_WORTH';
+      const financialEval = evaluateFinancialEligibility(
+        evidence,
+        { businessName: b.businessName, country: criteria.country },
+        filterMode
+      );
+      entity.financialEligibility = financialEval;
+      entity.isHighNetWorthQualified = financialEval.isQualified;
+
+      const evalState = financialEval.state || financialEval.eligibilityState;
+      const isHnwQualified = financialEval.isHighNetWorthQualified ?? financialEval.isQualified;
+
+      if (evalState === 'INSUFFICIENT_EVIDENCE') {
+        rejectedCandidatesList.push({
+          name: b.businessName,
+          category: b.category,
+          city: b.city,
+          state: b.state,
+          phone: b.phone,
+          email: b.email,
+          websiteUrl: b.website,
+          websiteStatus: webClass.status,
+          rejectionReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
+          rejectionDetails: 'Excluded: Reliable public financial evidence (filings/disclosures) was unavailable',
+        });
+        job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE = (job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) + 1;
+
+        logger.info({
+          jobId: job.id,
+          actorId: 'financial_diagnostics',
+          message: `Financial Qualification Rejected: ${b.businessName} (Insufficient Evidence - Public filings unavailable)`,
+          extra: {
+            candidateName: b.businessName,
+            normalizedCountry: (b as any).country || criteria.country || 'India',
+            normalizedState: b.state,
+            normalizedCity: b.city,
+            normalizedCategory: b.category,
+            exactReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
+            details: financialEval.qualificationExplanation,
+          },
+        });
+        console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Insufficient financial evidence (No public SEC/MCA filings)`);
+        return null;
+      }
+
+      if (evalState === 'NOT_QUALIFIED') {
+        rejectedCandidatesList.push({
+          name: b.businessName,
+          category: b.category,
+          city: b.city,
+          state: b.state,
+          phone: b.phone,
+          email: b.email,
+          websiteUrl: b.website,
+          websiteStatus: webClass.status,
+          rejectionReason: 'BELOW_FINANCIAL_THRESHOLD',
+          rejectionDetails: `Excluded: Verified scale (${financialEval.metricLabel}) below ₹70 Cr INR threshold`,
+        });
+        job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD = (job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) + 1;
+
+        logger.info({
+          jobId: job.id,
+          actorId: 'financial_diagnostics',
+          message: `Financial Qualification Rejected: ${b.businessName} (Below ₹70 Cr Threshold)`,
+          extra: {
+            candidateName: b.businessName,
+            normalizedCountry: (b as any).country || criteria.country || 'India',
+            normalizedState: b.state,
+            normalizedCity: b.city,
+            normalizedCategory: b.category,
+            exactReason: 'BELOW_FINANCIAL_THRESHOLD',
+            details: financialEval.qualificationExplanation,
+          },
+        });
+        console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Verified below threshold (${financialEval.metricLabel})`);
+        return null;
+      }
+
+      if (isHnwQualified !== true) {
+        console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Not verified high-net-worth qualified`);
+        return null;
+      }
+
+      console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" QUALIFIED (≥ ₹70 Cr INR): ${financialEval.metricLabel}`);
+    }
+
+    return entity;
+  }
+
+  /**
    * Main Pipeline Execution: FAST PATH + ASYNC BACKGROUND ENRICHMENT
    * Bounded by global search deadline (default LEAD_SEARCH_DEADLINE_MS = 8000ms, Section 13).
    */
@@ -347,12 +859,356 @@ export class LeadPilotOrchestrator {
       }));
 
       // --- STAGE 1: Fast Business Discovery (RapidAPI Primary + Multi-Provider Fallback) ---
-      // Section 2: When financial toggle is OFF, requested limit must be respected without artificial multipliers.
-      // When financial toggle is ON, make ONE call with hard cap of 25 candidates to save API credits.
-      const isHnw = Boolean(job.highNetWorthFilter || (criteria as any).highNetWorthOnly);
-      const hnwBudget = 25; // Action Item 3: Hard cap of 25 candidates
-      const targetDiscoveryPool = isHnw ? hnwBudget : job.requestedLeads;
+      const isHnw = Boolean(
+        job.highNetWorthFilter ||
+        (job as any).highNetWorthOnly ||
+        (criteria as any).highNetWorthOnly ||
+        (criteria as any).highNetWorthFilter
+      );
       const requestedOffset = Math.max(Number(criteria.offset) || 0, 0);
+
+      // Section: Auto-Loop Discovery to Fulfill Requested Lead Limit (Strict Filter Mode)
+      if (isHnw) {
+        const requestedLimit = job.requestedLeads || 5;
+        const batchSize = 20;
+        const maxApiCalls = 3;
+        let apiCallsMade = 0;
+        let currentOffset = requestedOffset;
+        const maxAllowedOffset = requestedOffset + (maxApiCalls * batchSize);
+        const qualifiedEntities: LeadEntity[] = [];
+        const seenCandidateKeys = new Set<string>();
+        let lastDiscoveryOutput: BusinessDiscoveryOutput | null = null;
+        let totalRawDiscovered = 0;
+        const rejectedCandidatesList: any[] = [];
+        const reachabilityMap = new Map<string, any>();
+        const userWebsiteFilter = normalizeWebsiteFilter(criteria.websiteFilter);
+        const normContact = normalizeContactFilter(criteria.contactFilter);
+
+        const plan = searchPlanner.planSearch({
+          industry: criteria.industry,
+          state: verifiedState,
+          city: verifiedCity,
+          contactFilter: criteria.contactFilter,
+          websiteFilter: criteria.websiteFilter,
+          limit: requestedLimit,
+          isGoogleConfigured: true,
+          isGoogleCircuitOpen: false,
+          isGoogleBudgetAllowed: true,
+        });
+
+        while (qualifiedEntities.length < requestedLimit && currentOffset < maxAllowedOffset && apiCallsMade < maxApiCalls) {
+          const currentPage = Math.floor(currentOffset / batchSize) + 1;
+          const discoveryOutput = await this.executeTrackedActor(
+            businessDiscoveryActor,
+            job,
+            {
+              industry: criteria.industry,
+              state: verifiedState,
+              city: verifiedCity,
+              country: verifiedCountry,
+              limit: batchSize,
+              offset: currentOffset,
+              page: currentPage,
+              bbox,
+              highNetWorthFilter: true,
+              highNetWorthOnly: true,
+            },
+            `Discovering candidates (Batch ${apiCallsMade + 1}, offset ${currentOffset})...`
+          );
+
+          lastDiscoveryOutput = discoveryOutput;
+          apiCallsMade++;
+          currentOffset += batchSize;
+
+          const batchCandidates = discoveryOutput.businesses || [];
+          totalRawDiscovered += batchCandidates.length;
+
+          if (batchCandidates.length === 0) {
+            break;
+          }
+
+          // Deduplicate against candidates already processed across batches
+          const newBatchCandidates = batchCandidates.filter((b) => {
+            const key = (b.businessName || '').toLowerCase().trim();
+            if (!key || seenCandidateKeys.has(key)) return false;
+            seenCandidateKeys.add(key);
+            return true;
+          });
+
+          if (newBatchCandidates.length === 0) {
+            continue;
+          }
+
+          // Location verification
+          const locationOutput = await this.executeTrackedActor(
+            locationVerificationActor,
+            job,
+            {
+              businesses: newBatchCandidates,
+              state: verifiedState,
+              city: verifiedCity,
+              country: verifiedCountry,
+            },
+            `Verifying municipal boundaries (Batch ${apiCallsMade})...`
+          );
+
+          job.locationVerifiedCount = (job.locationVerifiedCount || 0) + locationOutput.verified.length;
+          job.rejectionReasons.OUTSIDE_LOCATION = (job.rejectionReasons.OUTSIDE_LOCATION || 0) + locationOutput.rejected.length;
+          job.rejectionReasons.UNKNOWN_LOCATION = (job.rejectionReasons.UNKNOWN_LOCATION || 0) + locationOutput.unknown.length;
+
+          for (const rej of locationOutput.rejected) {
+            rejectedCandidatesList.push({
+              name: rej.business.businessName,
+              category: rej.business.category,
+              city: rej.business.city,
+              state: rej.business.state,
+              rejectionReason: 'OUTSIDE_LOCATION' as const,
+              rejectionDetails: 'Candidate is outside the specified geographic boundary.',
+            });
+          }
+
+          // Business verification & industry relevance
+          const businessVerificationOutput = await this.executeTrackedActor(
+            businessVerificationActor,
+            job,
+            {
+              businesses: locationOutput.verified,
+              requestedIndustry: criteria.industry,
+            },
+            `Verifying business identity & relevance (Batch ${apiCallsMade})...`
+          );
+
+          for (const rej of businessVerificationOutput.rejected) {
+            if (rej.reason === 'MISSING_NAME') job.rejectionReasons.MISSING_NAME++;
+            if (rej.reason === 'INVALID_CATEGORY' || rej.reason === 'CATEGORY_UNVERIFIED') {
+              job.rejectionReasons.INVALID_CATEGORY++;
+            }
+            rejectedCandidatesList.push({
+              name: rej.business.businessName,
+              category: rej.business.category,
+              city: rej.business.city,
+              state: rej.business.state,
+              rejectionReason: (rej.reason || 'MISSING_NAME') as any,
+              rejectionDetails: rej.details || 'Candidate failed identity or category verification.',
+            });
+          }
+
+          const candidatesToEvaluate = businessVerificationOutput.verified;
+
+          // Check website reachability for candidates with URLs if required
+          const requiresReachability = ['WORKING', 'UNREACHABLE', 'NEEDS_IMPROVEMENT'].includes(userWebsiteFilter);
+          if (requiresReachability) {
+            const urls = candidatesToEvaluate
+              .map((b) => b.website)
+              .filter((u): u is string => Boolean(u && u.trim().length > 0));
+            if (urls.length > 0) {
+              const batchMap = await checkBatchReachability(urls);
+              for (const [u, r] of batchMap.entries()) {
+                reachabilityMap.set(u, r);
+              }
+            }
+          }
+
+          // Evaluate each candidate through strict ₹70 Cr filter
+          for (let i = 0; i < candidatesToEvaluate.length; i++) {
+            if (qualifiedEntities.length >= requestedLimit) {
+              break;
+            }
+            const candidate = candidatesToEvaluate[i];
+            try {
+              const entity = await this.evaluateCandidate(
+                candidate,
+                job,
+                criteria,
+                verifiedCity,
+                verifiedState,
+                verifiedCountry,
+                userWebsiteFilter,
+                normContact,
+                reachabilityMap,
+                rejectedCandidatesList
+              );
+              if (entity) {
+                qualifiedEntities.push(entity);
+              }
+            } catch (evalErr: any) {
+              job.rejectionReasons.OTHER++;
+            }
+          }
+        }
+
+        job.apiRequestsCount = apiCallsMade;
+        job.nextOffset = currentOffset;
+        job.discovered = totalRawDiscovered;
+        job.sourceComplete = qualifiedEntities.length >= requestedLimit || totalRawDiscovered > 0;
+        job.primaryProvider = 'rapidapi';
+        if (lastDiscoveryOutput) {
+          job.providerStats = {
+            primaryProvider: 'rapidapi',
+            ...lastDiscoveryOutput.providerStats,
+          } as any;
+          job.providersReport = {
+            ...job.providersReport,
+            rapidapi: {
+              status: lastDiscoveryOutput.providerStats.rapidapi?.status || 'SUCCESS',
+              discovered: totalRawDiscovered,
+              pagesRequested: apiCallsMade,
+              errors: lastDiscoveryOutput.providerStats.rapidapi?.errors || [],
+            },
+          } as any;
+        }
+
+        const { validLeads: strictlyGuaranteedEntities, violationsCount } = assertHardGuarantee(
+          qualifiedEntities,
+          userWebsiteFilter
+        );
+        if (violationsCount > 0) {
+          job.rejectionReasons.WEBSITE_FILTER_MISMATCH =
+            (job.rejectionReasons.WEBSITE_FILTER_MISMATCH || 0) + violationsCount;
+        }
+
+        const deliveredEntities = strictlyGuaranteedEntities.slice(0, requestedLimit);
+
+        let backgroundJobsQueued = 0;
+        for (const entity of deliveredEntities) {
+          if (entity.isMock) continue;
+          if (plan.plannedFilters.enrichmentFilters.requireEmailExtraction && !entity.email && entity.website) {
+            backgroundEnrichmentQueue.enqueue({
+              leadId: entity.leadId,
+              searchId: job.id,
+              type: 'EMAIL_EXTRACTION',
+              priority: 'HIGH',
+              provider: 'crawler',
+            });
+            backgroundJobsQueued++;
+          }
+          if (plan.plannedFilters.enrichmentFilters.requireReachabilityCheck && entity.website) {
+            backgroundEnrichmentQueue.enqueue({
+              leadId: entity.leadId,
+              searchId: job.id,
+              type: 'WEBSITE_REACHABILITY',
+              priority: 'MEDIUM',
+              provider: 'http_reachability',
+            });
+            backgroundJobsQueued++;
+          }
+          if (!entity.website && plan.plannedFilters.enrichmentFilters.requireWebsiteDiscovery) {
+            backgroundEnrichmentQueue.enqueue({
+              leadId: entity.leadId,
+              searchId: job.id,
+              type: 'WEBSITE_DISCOVERY',
+              priority: 'LOW',
+              provider: 'web_search',
+            });
+            backgroundJobsQueued++;
+          }
+          if (plan.plannedFilters.deepAuditFilters.requireSeoAudit && entity.website) {
+            backgroundEnrichmentQueue.enqueue({
+              leadId: entity.leadId,
+              searchId: job.id,
+              type: 'WEBSITE_AUDIT',
+              priority: 'LOW',
+              provider: 'lighthouse',
+            });
+            backgroundJobsQueued++;
+          }
+          backgroundEnrichmentQueue.enqueue({
+            leadId: entity.leadId,
+            searchId: job.id,
+            type: 'COMMERCIAL_INTELLIGENCE',
+            priority: 'LOW',
+            provider: 'gemini_search',
+          });
+          backgroundJobsQueued++;
+        }
+
+        const phoneCount = deliveredEntities.filter((l) => Boolean(l.phone)).length;
+        const emailCount = deliveredEntities.filter((l) => Boolean(l.email)).length;
+        const phoneOrEmailCount = deliveredEntities.filter((l) => Boolean(l.phone || l.email)).length;
+        const workingWebsiteCount = deliveredEntities.filter((l) => l.websiteStatus === 'Working').length;
+        const needsImprovementCount = deliveredEntities.filter((l) => l.websiteStatus === 'Needs Improvement').length;
+        const unreachableCount = deliveredEntities.filter((l) => l.websiteStatus === 'Unreachable').length;
+        const noWebsiteCount = deliveredEntities.filter((l) => l.websiteStatus === 'No Website' || !l.website).length;
+        const websiteAvailableCount = workingWebsiteCount + needsImprovementCount;
+
+        job.leads = deliveredEntities;
+        job.verified = deliveredEntities.length;
+        job.completed = deliveredEntities.length;
+        job.qualified = deliveredEntities.length;
+        job.phoneCount = phoneCount;
+        job.emailCount = emailCount;
+        job.phoneOrEmailCount = phoneOrEmailCount;
+        job.websiteVerifiedCount = websiteAvailableCount;
+        job.noWebsiteCount = noWebsiteCount;
+        job.backgroundJobsQueued = backgroundJobsQueued;
+
+        job.pipelineBreakdown = {
+          rawDiscoveredCount: totalRawDiscovered,
+          normalizedCount: totalRawDiscovered - (job.rejectionReasons.MISSING_NAME || 0),
+          locationCheckedCount: (job.locationVerifiedCount || 0) + (job.rejectionReasons.OUTSIDE_LOCATION || 0) + (job.rejectionReasons.UNKNOWN_LOCATION || 0),
+          locationVerifiedCount: job.locationVerifiedCount || 0,
+          inCityBoundsCount: job.locationVerifiedCount || 0,
+          outsideLocationCount: job.rejectionReasons.OUTSIDE_LOCATION || 0,
+          unknownLocationCount: job.rejectionReasons.UNKNOWN_LOCATION || 0,
+          deduplicatedCount: totalRawDiscovered - (job.rejectionReasons.DUPLICATE || 0),
+          queuedCount: totalRawDiscovered,
+          processedCount: totalRawDiscovered,
+          notProcessedCount: 0,
+          notProcessedBeforeDeadlineCount: 0,
+          phoneCount,
+          emailCount,
+          phoneOrEmailCount,
+          websiteAvailableCount,
+          websiteUnavailableCount: noWebsiteCount,
+          verifiedNoWebsiteCount: noWebsiteCount,
+          websiteUnreachableCount: unreachableCount,
+          websiteNeedsImprovementCount: needsImprovementCount,
+          finalQualifiedCount: deliveredEntities.length,
+          deliveredCount: deliveredEntities.length,
+          apiRequestsCount: apiCallsMade,
+        };
+
+        job.rejectedCandidates = rejectedCandidatesList;
+
+        if (deliveredEntities.length >= requestedLimit) {
+          job.sourceStatus = 'COMPLETE';
+          job.statusReason = `Found ${deliveredEntities.length} verified leads matching ₹70 Cr+.`;
+        } else if (deliveredEntities.length > 0) {
+          job.sourceStatus = 'PARTIAL';
+          const X = deliveredEntities.length;
+          const Y = requestedLimit - X;
+          job.statusReason = `Found ${X} verified ${X === 1 ? 'lead' : 'leads'}. Searched thoroughly but could not find ${Y} more in this area. Try a broader location.`;
+        } else {
+          job.sourceStatus = 'NO_RESULTS';
+          if (totalRawDiscovered === 0) {
+            job.statusReason = 'No matching candidates found in the specified location and industry.';
+          } else {
+            job.statusReason = `Found 0 verified leads. Searched thoroughly but could not find ${requestedLimit} more in this area. Try a broader location.`;
+          }
+        }
+
+        leadPilotDb.upsertLeadsBatch(deliveredEntities.filter((e) => !e.isMock));
+        job.status = 'DISCOVERY_COMPLETE';
+        job.completedAt = new Date().toISOString();
+
+        timestamps.responseSent = Date.now();
+        const fastPathLatencyMs = timestamps.responseSent - timestamps.searchStart;
+        job.fastPathLatencyMs = fastPathLatencyMs;
+        job.latencyMs = fastPathLatencyMs;
+
+        leadPilotDb.updateJob(job.id, job);
+
+        for (const ent of deliveredEntities) {
+          try {
+            leadsDb.upsertLead(leadEntityToFrontend(ent));
+          } catch {}
+        }
+
+        return job;
+      }
+
+      // Normal discovery flow (isHnw is false)
+      const targetDiscoveryPool = job.requestedLeads;
       const requestedPage = criteria.page || (requestedOffset ? Math.floor(requestedOffset / (criteria.limit || 20)) + 1 : 1);
       const discoveryOutput = await this.executeTrackedActor(
         businessDiscoveryActor,
@@ -618,7 +1474,7 @@ export class LeadPilotOrchestrator {
       }
 
       if (candidatesNeedingEmail.length > 0) {
-        const poolLimit = Math.min(candidatesNeedingEmail.length, job.highNetWorthFilter ? hnwBudget : job.requestedLeads);
+        const poolLimit = Math.min(candidatesNeedingEmail.length, job.highNetWorthFilter ? 25 : job.requestedLeads);
         this.logProgress(
           job,
           'email_enrichment',
@@ -695,7 +1551,7 @@ export class LeadPilotOrchestrator {
         const candidateUrls = contactPassedCandidates
           .map((b) => b.website)
           .filter((u): u is string => Boolean(u && u.trim().length > 0))
-          .slice(0, Math.min(contactPassedCandidates.length, job.highNetWorthFilter ? hnwBudget : job.requestedLeads));
+          .slice(0, Math.min(contactPassedCandidates.length, job.highNetWorthFilter ? 25 : job.requestedLeads));
 
         if (candidateUrls.length > 0) {
           this.logProgress(
@@ -723,517 +1579,6 @@ export class LeadPilotOrchestrator {
       const evaluatedIndices = new Set<number>();
       let candidateQueueIndex = 0;
 
-      const evaluateCandidate = async (b: typeof fastCandidates[0], bIndex: number): Promise<LeadEntity | null> => {
-        // Evaluate Website Reachability & Filter
-        const reachCheck = b.website ? reachabilityMap.get(b.website) : undefined;
-        const webClass = classifyCandidateWebsite(b.website, userWebsiteFilter, reachCheck);
-
-        if (!webClass.matchesFilter) {
-          rejectedCandidatesList.push({
-            name: b.businessName,
-            category: b.category,
-            city: b.city,
-            state: b.state,
-            phone: b.phone,
-            email: b.email,
-            websiteUrl: b.website,
-            websiteStatus: webClass.status,
-            rejectionReason: (webClass.rejectionReason as any) || 'WEBSITE_FILTER_MISMATCH',
-            rejectionDetails: webClass.rejectionDetails || `Failed website filter: ${userWebsiteFilter}`,
-          });
-
-          if (webClass.rejectionReason === 'HAS_WEBSITE') job.rejectionReasons.HAS_WEBSITE++;
-          else if (webClass.rejectionReason === 'NO_WEBSITE') job.rejectionReasons.NO_WEBSITE++;
-          else if (webClass.rejectionReason === 'WEBSITE_UNREACHABLE') job.rejectionReasons.WEBSITE_UNREACHABLE++;
-          else if (webClass.rejectionReason === 'WEBSITE_WORKING') job.rejectionReasons.OTHER++;
-          else if (webClass.rejectionReason === 'NO_IMPROVEMENT_OPPORTUNITY') job.rejectionReasons.AUDIT_FAILED++;
-          else job.rejectionReasons.OTHER++;
-
-          return null;
-        }
-
-        // Assemble Qualified Lead Entity with Verified Provenance
-        const leadId = `lead_${b.sourceId ? b.sourceId.replace(/[^a-zA-Z0-9_-]/g, '_') : Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-
-        const emailSource = (b as any).emailSourceUrl
-          ? 'official_website'
-          : b.source === 'osm' || b.source === 'openstreetmap'
-          ? 'openstreetmap'
-          : b.email
-          ? 'official_website'
-          : b.source || 'google_places';
-
-        // --- Section 6 & 7: Google Data First & Contact Filter Fast Path ---
-        const normPhone = normalizePhone(b.phone, criteria.country);
-        const normEmail = b.email && b.email.includes('@') ? b.email.trim().toLowerCase() : undefined;
-        const normContact = normalizeContactFilter(criteria.contactFilter);
-
-        const satisfiedByExistingData =
-          (normContact === 'ALL_CONTACTS') ||
-          (normContact === 'PHONE_OR_EMAIL' && (normPhone || normEmail)) ||
-          (normContact === 'PHONE_ONLY' && normPhone) ||
-          (normContact === 'VERIFIED_PHONE' && normPhone) ||
-          (normContact === 'EMAIL_ONLY' && normEmail) ||
-          (normContact === 'EMAIL_AND_PHONE' && normPhone && normEmail);
-
-        const contacts: ContactItem[] = [];
-        const verifiedStatuses = new Set(['VERIFIED', 'MOBILE', 'LANDLINE']);
-        let enrichmentOutput: ContactEnrichmentOutput | undefined;
-
-        if (satisfiedByExistingData) {
-          // Google/OSM structured data satisfies requirement immediately (0.05ms)
-          if (normPhone) {
-            contacts.push({
-              value: normPhone,
-              type: 'phone',
-              source: b.source || 'google_places',
-              sourceType: b.source || 'google_places',
-              sourceUrl: (b as any).emailSourceUrl || b.sourceUrl || (b.source === 'google_places' ? `https://www.google.com/maps/place/?q=place_id:${b.sourceId}` : undefined),
-              confidence: 'verified',
-              verified: true,
-            });
-          }
-          if (normEmail) {
-            contacts.push({
-              value: normEmail,
-              type: 'email',
-              source: emailSource,
-              sourceType: emailSource,
-              sourceUrl: (b as any).emailSourceUrl || b.website || b.sourceUrl,
-              confidence: 'verified',
-              verified: true,
-            });
-          }
-        } else {
-          // Only perform external enrichment when required contact is genuinely missing
-          try {
-            const enrichPromise = contactEnrichmentPipeline.enrichAndVerify({
-
-              businessId: leadId,
-              businessName: b.businessName,
-              phone: b.phone,
-              email: b.email,
-              websiteUrl: b.website,
-              source: emailSource,
-              sourceUrl: (b as any).emailSourceUrl || b.sourceUrl || (b.source === 'google_places' ? `https://www.google.com/maps/place/?q=place_id:${b.sourceId}` : undefined),
-              contactFilter: criteria.contactFilter,
-              crawlResult: (b as any).crawlResult ? {
-                extractedEmails: (b as any).crawlResult.extractedEmails || [],
-                extractedPhones: (b as any).crawlResult.extractedPhones || [],
-                finalUrl: (b as any).crawlResult.finalUrl,
-                pages: (b as any).crawlResult.pages,
-                socialLinks: (b as any).crawlResult.socialLinks,
-                ctas: (b as any).crawlResult.ctas,
-              } : undefined,
-            });
-
-            // Bounded per-candidate timeout: 2500ms
-            let timeoutHandle: NodeJS.Timeout | undefined;
-            const timeoutPromise = new Promise<undefined>((resolve) => {
-              timeoutHandle = setTimeout(() => resolve(undefined), 2500);
-            });
-            enrichmentOutput = await Promise.race([enrichPromise, timeoutPromise]).finally(() => {
-              if (timeoutHandle) clearTimeout(timeoutHandle);
-            });
-          } catch {
-            // Non-fatal: enrichment failure does not reject the lead
-          }
-
-          if (enrichmentOutput) {
-            for (const c of enrichmentOutput.contacts) {
-              if (c.contactType === 'PHONE') {
-                contacts.push({
-                  value: c.normalizedValue,
-                  type: 'phone',
-                  source: c.source,
-                  sourceType: c.sourceProvider || c.source,
-                  sourceUrl: c.sourceUrl,
-                  confidence: verifiedStatuses.has(c.verificationStatus) ? 'verified' : (c.confidence >= 0.6 ? 'high' : 'medium'),
-                  verified: verifiedStatuses.has(c.verificationStatus),
-                });
-              } else if (c.contactType === 'EMAIL') {
-                contacts.push({
-                  value: c.normalizedValue,
-                  type: 'email',
-                  source: c.source,
-                  sourceType: c.sourceProvider || c.source,
-                  sourceUrl: c.sourceUrl,
-                  confidence: c.verificationStatus === 'VERIFIED' ? 'verified' : (c.confidence >= 0.6 ? 'high' : 'medium'),
-                  verified: c.verificationStatus === 'VERIFIED',
-                });
-              } else if (c.contactType === 'WHATSAPP' || c.contactType === 'CONTACT_FORM') {
-                contacts.push({
-                  value: c.normalizedValue,
-                  type: c.contactType === 'WHATSAPP' ? 'whatsapp' : 'contact_form',
-                  source: c.source,
-                  sourceType: c.sourceProvider || c.source,
-                  sourceUrl: c.sourceUrl,
-                  confidence: 'medium',
-                  verified: false,
-                });
-              }
-            }
-          } else {
-            if (normPhone) {
-              contacts.push({
-                value: normPhone,
-                type: 'phone',
-                source: b.source || 'google_places',
-                sourceType: b.source || 'google_places',
-                confidence: 'medium',
-                verified: false,
-              });
-            }
-            if (normEmail) {
-              contacts.push({
-                value: normEmail,
-                type: 'email',
-                source: (b as any).emailSourceUrl ? 'official_website' : (b.source || 'openstreetmap'),
-                sourceType: (b as any).emailSourceUrl ? 'website' : (b.source || 'openstreetmap'),
-                sourceUrl: (b as any).emailSourceUrl || b.website,
-                confidence: 'medium',
-                verified: false,
-              });
-            }
-          }
-        }
-
-
-        const isCandidateMock = Boolean(
-          b.isMock ||
-          (b as any).rawTags?.isMock ||
-          (b as any).rawTags?.isMockDemo ||
-          b.confidence === 'DEMO_MOCK' ||
-          b.source === 'rapidapi (mock demo)' ||
-          b.sources?.some(s => s.includes('mock'))
-        );
-
-        const resolvedSources = b.sources && b.sources.length > 0 ? b.sources : [b.source || 'rapidapi'];
-        const resolvedEvidence =
-          b.sourceEvidence && b.sourceEvidence.length > 0
-            ? b.sourceEvidence.map((ev: any) => ({
-                sourceName: ev.source || ev.sourceName || 'rapidapi',
-                sourceId: ev.sourceId,
-                rawTags: ev.rawTags,
-                observedAt: new Date().toISOString(),
-              }))
-            : [
-                {
-                  sourceName: b.source || 'rapidapi',
-                  sourceId: b.sourceId,
-                  rawTags: b.rawTags,
-                  observedAt: new Date().toISOString(),
-                },
-              ];
-
-        const rapidApiId =
-          b.rawTags?.rapidApiId ||
-          (b.source === 'rapidapi' ? b.sourceId : undefined) ||
-          b.sourceEvidence?.find((e: any) => e.source === 'rapidapi' || e.sourceName === 'rapidapi')?.sourceId;
-
-        const googlePlaceId =
-          b.rawTags?.googlePlaceId ||
-          (b.source === 'google_places' ? b.sourceId : undefined) ||
-          b.sourceEvidence?.find((e: any) => e.source === 'google_places' || e.sourceName === 'google_places')?.sourceId;
-
-        const osmId =
-          b.rawTags?.osmId
-            ? String(b.rawTags.osmId)
-            : (b.source === 'osm' || b.source === 'openstreetmap' ? b.sourceId : undefined) ||
-              b.sourceEvidence?.find((e: any) => e.source === 'osm' || e.source === 'openstreetmap' || e.sourceName === 'openstreetmap')?.sourceId;
-
-        const httpsSecure = reachCheck?.isHttps ?? (webClass.url?.startsWith('https') || false);
-        const scoreResult = calculateLeadScore({
-          businessName: b.businessName,
-          category: b.category,
-          address: b.address,
-          city: b.city || verifiedCity,
-          state: b.state || verifiedState,
-          country: (b as any).country || criteria.country || 'India',
-          phone: b.phone,
-          email: b.email,
-          website: webClass.url,
-          websiteStatus: webClass.status,
-          https: httpsSecure,
-          locationVerificationStatus: (b as any).locationVerificationStatus || 'VERIFIED',
-          businessVerificationStatus: 'VERIFIED',
-          sources: resolvedSources,
-          rawTags: b.rawTags,
-          audit: (b as any).auditResult || (b as any).websiteAudit,
-        });
-
-        const entity: LeadEntity = {
-          leadId,
-          businessName: b.businessName,
-          category: b.category,
-          industry: criteria.industry,
-          address: b.address || '',
-          city: b.city || verifiedCity || '',
-          state: b.state || verifiedState,
-          country: (b as any).country || verifiedCountry,
-          postcode: b.postalCode || b.postcode,
-          latitude: b.latitude,
-          longitude: b.longitude,
-          phone: b.phone,
-          email: b.email,
-          website: webClass.url,
-          websiteStatus: webClass.status,
-          https: httpsSecure,
-          socialLinks: {},
-          contacts,
-          isMock: isCandidateMock,
-          rapidApiId,
-          googlePlaceId: b.googlePlaceId || googlePlaceId,
-          businessVerificationStatus: 'VERIFIED',
-          locationVerificationStatus: 'VERIFIED',
-          auditIssues: isCandidateMock ? [] : webClass.detectedIssues.map((issue) => ({ issue, category: 'technical' as const, severity: 'medium' as const, evidence: issue })),
-          scoreBreakdown: scoreResult.breakdown,
-          leadScore: scoreResult.score,
-          sources: resolvedSources,
-          sourceEvidence: resolvedEvidence,
-          enrichmentStatus: 'QUALIFIED',
-          auditStatus: webClass.hasEvidenceBackedImprovement ? 'AUDITED' : 'PENDING',
-          rating: isCandidateMock ? null : (b.rating !== undefined ? b.rating : null),
-          userRatingCount: isCandidateMock ? null : (b.userRatingCount !== undefined ? b.userRatingCount : null),
-          reviewCount: isCandidateMock ? null : (b.userRatingCount !== undefined ? b.userRatingCount : null),
-          businessStatus: b.businessStatus,
-          positiveReviewDataAvailable: isCandidateMock ? false : b.positiveReviewDataAvailable,
-          positiveReviewCount: isCandidateMock ? null : b.positiveReviewCount,
-          negativeReviewCount: isCandidateMock ? null : b.negativeReviewCount,
-          neutralReviewCount: isCandidateMock ? null : b.neutralReviewCount,
-          positiveReviewRatio: isCandidateMock ? null : b.positiveReviewRatio,
-          reviews: isCandidateMock ? [] : b.reviews,
-          osmId,
-          provenance: {
-            phone: {
-              value: b.phone,
-              source: enrichmentOutput?.contacts.find(c => c.contactType === 'PHONE')?.source || contacts.find(c => c.type === 'phone')?.source || resolvedSources.join(', '),
-              verified: enrichmentOutput ? enrichmentOutput.quality.hasVerifiedPhone : contacts.some(c => c.type === 'phone' && c.verified),
-            },
-            website: { value: webClass.url, source: resolvedSources.join(', '), verified: Boolean(webClass.url) },
-            email: {
-              value: b.email,
-              source: enrichmentOutput?.contacts.find(c => c.contactType === 'EMAIL')?.source
-                || contacts.find(c => c.type === 'email')?.source
-                || (b.email ? ((b as any).emailSourceUrl ? 'official_website' : (resolvedSources.find((s: string) => s === 'openstreetmap' || s === 'osm') || 'official_website')) : 'none'),
-              verified: enrichmentOutput ? enrichmentOutput.quality.hasVerifiedEmail : contacts.some(c => c.type === 'email' && c.verified),
-            },
-          },
-
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        // Review Intelligence Filters (Sections 9, 10, 11 - REAL DATA ONLY)
-        if (criteria.excludePerfectRating && entity.rating === 5.0) {
-          rejectedCandidatesList.push({
-            name: b.businessName,
-            category: b.category,
-            city: b.city,
-            state: b.state,
-            phone: b.phone,
-            email: b.email,
-            websiteUrl: b.website,
-            websiteStatus: webClass.status,
-            rejectionReason: 'FILTER_MISMATCH' as any,
-            rejectionDetails: 'Excluded because: Perfect 5.0 rating',
-          });
-          job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
-          return null;
-        }
-
-        if (typeof criteria.minRating === 'number' && criteria.minRating > 0) {
-          if (entity.rating === null || entity.rating === undefined || entity.rating < criteria.minRating) {
-            rejectedCandidatesList.push({
-              name: b.businessName,
-              category: b.category,
-              city: b.city,
-              state: b.state,
-              phone: b.phone,
-              email: b.email,
-              websiteUrl: b.website,
-              websiteStatus: webClass.status,
-              rejectionReason: 'FILTER_MISMATCH' as any,
-              rejectionDetails: `Excluded because: Rating (${entity.rating ?? 'none'}) below minimum requirement (${criteria.minRating})`,
-            });
-            job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
-            return null;
-          }
-        }
-
-        if (typeof criteria.minReviews === 'number' && criteria.minReviews > 0) {
-          const reviewsCount = entity.userRatingCount || 0;
-          if (reviewsCount < criteria.minReviews) {
-            rejectedCandidatesList.push({
-              name: b.businessName,
-              category: b.category,
-              city: b.city,
-              state: b.state,
-              phone: b.phone,
-              email: b.email,
-              websiteUrl: b.website,
-              websiteStatus: webClass.status,
-              rejectionReason: 'FILTER_MISMATCH' as any,
-              rejectionDetails: `Excluded because: Review count (${reviewsCount}) below minimum requirement (${criteria.minReviews})`,
-            });
-            job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
-            return null;
-          }
-        }
-
-        if (criteria.requirePositiveReviewEvidence && !entity.positiveReviewDataAvailable) {
-          rejectedCandidatesList.push({
-            name: b.businessName,
-            category: b.category,
-            city: b.city,
-            state: b.state,
-            phone: b.phone,
-            email: b.email,
-            websiteUrl: b.website,
-            websiteStatus: webClass.status,
-            rejectionReason: 'FILTER_MISMATCH' as any,
-            rejectionDetails: 'Excluded because: Insufficient positive review evidence',
-          });
-          job.rejectionReasons.FILTER_MISMATCH = (job.rejectionReasons.FILTER_MISMATCH || 0) + 1;
-          return null;
-        }
-
-        // Strict Post-Enrichment Contact Filter Verification
-        const contactFilterEval = evaluateContactFilter(
-          normContact,
-          enrichmentOutput?.quality || {
-            level: (contacts.some(c => c.verified) ? 'MEDIUM' : (contacts.length > 0 ? 'LOW' : 'NONE')),
-            hasPhone: contacts.some(c => c.type === 'phone'),
-            hasEmail: contacts.some(c => c.type === 'email'),
-            hasVerifiedPhone: contacts.some(c => c.type === 'phone' && c.verified),
-            hasVerifiedEmail: contacts.some(c => c.type === 'email' && c.verified),
-            hasContact: contacts.length > 0,
-            hasVerifiedContact: contacts.some(c => c.verified),
-            phoneCount: contacts.filter(c => c.type === 'phone').length,
-            emailCount: contacts.filter(c => c.type === 'email').length,
-            verifiedPhoneCount: contacts.filter(c => c.type === 'phone' && c.verified).length,
-            verifiedEmailCount: contacts.filter(c => c.type === 'email' && c.verified).length,
-            explanation: 'Inferred from contacts list',
-          }
-        );
-
-        if (!contactFilterEval.match) {
-          rejectedCandidatesList.push({
-            name: b.businessName,
-            category: b.category,
-            city: b.city,
-            state: b.state,
-            phone: b.phone,
-            email: b.email,
-            websiteUrl: b.website,
-            websiteStatus: webClass.status,
-            rejectionReason: 'CONTACT_FILTER_MISMATCH' as any,
-            rejectionDetails: `Failed strict contact filter: ${criteria.contactFilter}`,
-          });
-          job.rejectionReasons.NO_CONTACT++;
-          if (job.rejectionReasons.CONTACT_FILTER_MISMATCH !== undefined) {
-            job.rejectionReasons.CONTACT_FILTER_MISMATCH++;
-          }
-          return null;
-        }
-
-        // Strict High-Net-Worth Business Filter (₹70 Crore INR threshold)
-        if (job.highNetWorthFilter || (criteria as any).highNetWorthOnly) {
-          const evidence = await financialEvidenceProvider.getFinancialEvidence(b.businessName, criteria.country);
-          const filterMode = (criteria as any).financialFilterMode || 'STRICT_NET_WORTH';
-          const financialEval = evaluateFinancialEligibility(
-            evidence,
-            { businessName: b.businessName, country: criteria.country },
-            filterMode
-          );
-          entity.financialEligibility = financialEval;
-          entity.isHighNetWorthQualified = financialEval.isQualified;
-
-          // STRICT ENFORCEMENT:
-          // If the "Net Worth ₹70 Cr+" toggle is ON, ONLY allow companies with verifiable
-          // public financial data (SEC EDGAR / MCA) proving their net worth is ≥ ₹70 Cr INR.
-          // Drop both INSUFFICIENT_EVIDENCE (missing filings) and NOT_QUALIFIED (below threshold).
-          const evalState = financialEval.state || financialEval.eligibilityState;
-          const isHnwQualified = financialEval.isHighNetWorthQualified ?? financialEval.isQualified;
-
-          if (evalState === 'INSUFFICIENT_EVIDENCE') {
-            rejectedCandidatesList.push({
-              name: b.businessName,
-              category: b.category,
-              city: b.city,
-              state: b.state,
-              phone: b.phone,
-              email: b.email,
-              websiteUrl: b.website,
-              websiteStatus: webClass.status,
-              rejectionReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
-              rejectionDetails: 'Excluded: Reliable public financial evidence (filings/disclosures) was unavailable',
-            });
-            job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE = (job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) + 1;
-
-            logger.info({
-              jobId: job.id,
-              actorId: 'financial_diagnostics',
-              message: `Financial Qualification Rejected: ${b.businessName} (Insufficient Evidence - Public filings unavailable)`,
-              extra: {
-                candidateName: b.businessName,
-                normalizedCountry: (b as any).country || criteria.country || 'India',
-                normalizedState: b.state,
-                normalizedCity: b.city,
-                normalizedCategory: b.category,
-                exactReason: 'INSUFFICIENT_FINANCIAL_EVIDENCE',
-                details: financialEval.qualificationExplanation,
-              },
-            });
-            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Insufficient financial evidence (No public SEC/MCA filings)`);
-            return null; // Do NOT pass through to final UI list
-          }
-
-          if (evalState === 'NOT_QUALIFIED') {
-            rejectedCandidatesList.push({
-              name: b.businessName,
-              category: b.category,
-              city: b.city,
-              state: b.state,
-              phone: b.phone,
-              email: b.email,
-              websiteUrl: b.website,
-              websiteStatus: webClass.status,
-              rejectionReason: 'BELOW_FINANCIAL_THRESHOLD',
-              rejectionDetails: `Excluded: Verified scale (${financialEval.metricLabel}) below ₹70 Cr INR threshold`,
-            });
-            job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD = (job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) + 1;
-
-            logger.info({
-              jobId: job.id,
-              actorId: 'financial_diagnostics',
-              message: `Financial Qualification Rejected: ${b.businessName} (Below ₹70 Cr Threshold)`,
-              extra: {
-                candidateName: b.businessName,
-                normalizedCountry: (b as any).country || criteria.country || 'India',
-                normalizedState: b.state,
-                normalizedCity: b.city,
-                normalizedCategory: b.category,
-                exactReason: 'BELOW_FINANCIAL_THRESHOLD',
-                details: financialEval.qualificationExplanation,
-              },
-            });
-            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Verified below threshold (${financialEval.metricLabel})`);
-            return null; // Do NOT pass through to final UI list
-          }
-
-          // Only allow if explicitly verified and meets the threshold
-          if (isHnwQualified !== true) {
-            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" DROPPED: Not verified high-net-worth qualified`);
-            return null;
-          }
-
-          console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" QUALIFIED (≥ ₹70 Cr INR): ${financialEval.metricLabel}`);
-        }
-
-        return entity;
-      };
-
       // Worker loop executing bounded concurrent processing with error isolation and deadline control
       const worker = async () => {
         while (true) {
@@ -1253,7 +1598,18 @@ export class LeadPilotOrchestrator {
           const candidate = contactPassedCandidates[idx];
 
           try {
-            const entity = await evaluateCandidate(candidate, idx);
+            const entity = await this.evaluateCandidate(
+              candidate,
+              job,
+              criteria,
+              verifiedCity,
+              verifiedState,
+              verifiedCountry,
+              userWebsiteFilter,
+              normContact,
+              reachabilityMap,
+              rejectedCandidatesList
+            );
             if (entity) {
               qualifiedEntities.push(entity);
             }
@@ -1522,6 +1878,8 @@ export class LeadPilotOrchestrator {
 
       // Section 10 & 11: Truthful status semantics
       const verifiedHnwCount = deliveredEntities.filter((e) => e.financialEligibility?.isQualified).length;
+
+      job.nextOffset = requestedOffset + (job.criteria.limit || job.requestedLeads || 20);
 
       if (deliveredEntities.length >= job.requestedLeads) {
         job.sourceStatus = 'COMPLETE';

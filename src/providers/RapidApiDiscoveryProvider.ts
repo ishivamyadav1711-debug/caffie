@@ -452,8 +452,9 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
     if (RapidApiDiscoveryProvider.simulateResults !== null) {
       const simList = RapidApiDiscoveryProvider.simulateResults;
       const maxLimit = isHnwActive ? 25 : parseInt(process.env.MAX_LEADS_PER_RUN || '20', 10);
+      const batchLimit = params.limit ? Math.min(params.limit, maxLimit) : maxLimit;
       const offset = Math.max(Number(params.offset) || 0, 0);
-      const clampedSimList = simList.slice(offset, offset + maxLimit);
+      const clampedSimList = simList.slice(offset, offset + batchLimit);
       const isExhausted = clampedSimList.length === 0 && offset > 0;
       return {
         providerId: this.providerId,
@@ -605,7 +606,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
       const targetLimit = Math.min(Math.max(params.limit || (isHnwActive ? 25 : 10), 1), maxLeadsAllowed);
       const requestedOffset = Math.max(Number(params.offset) || 0, 0);
       const requestedPage = params.page || Math.floor(requestedOffset / targetLimit) + 1;
-      const apiLimit = requestedOffset > 0 ? Math.min(targetLimit + requestedOffset, 50) : targetLimit;
+      const apiLimit = requestedOffset > 0 ? Math.min(targetLimit + requestedOffset, 100) : targetLimit;
 
       const { url, hostHeader } = this.resolveGatewayEndpoint();
 

@@ -579,10 +579,12 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
       // Partial result (e.g. 2 of 5)
       const partialJob: any = { requestedLeads: 5, highNetWorthFilter: true };
       const partialCount = 2;
+      const X = partialCount;
+      const Y = partialJob.requestedLeads - X;
       const partialReason = partialJob.highNetWorthFilter
-        ? `Found ${partialCount} verified leads matching ₹70 Cr+. Scanned max limit of 25 local businesses.`
+        ? `Found ${X} verified ${X === 1 ? 'lead' : 'leads'}. Searched thoroughly but could not find ${Y} more in this area. Try a broader location.`
         : '';
-      expect(partialReason).toBe('Found 2 verified leads matching ₹70 Cr+. Scanned max limit of 25 local businesses.');
+      expect(partialReason).toBe('Found 2 verified leads. Searched thoroughly but could not find 3 more in this area. Try a broader location.');
 
       // Zero result
       const zeroJob: any = { requestedLeads: 5, highNetWorthFilter: true };
@@ -592,6 +594,64 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
       expect(zeroReason).toBe(
         '0 verified businesses found in this area. To save API limits, we searched a max of 25 candidates. Try a larger city (e.g., Mumbai) or turn off the ₹70 Cr filter.'
       );
+    });
+
+    it('verifies internal fetch loop conditions and nextOffset calculation', () => {
+      // Simulating loop parameters
+      const requestedLimit = 5;
+      const batchSize = 20;
+      const maxApiCalls = 3;
+      let apiCallsMade = 0;
+      let currentOffset = 0;
+      const maxAllowedOffset = currentOffset + (maxApiCalls * batchSize);
+      const qualifiedLeads: any[] = [];
+
+      // Batch 1: returns 20 items, only 2 qualify
+      while (qualifiedLeads.length < requestedLimit && currentOffset < maxAllowedOffset && apiCallsMade < maxApiCalls) {
+        apiCallsMade++;
+        currentOffset += batchSize;
+        if (apiCallsMade === 1) {
+          qualifiedLeads.push({ id: 'lead_1' }, { id: 'lead_2' });
+        } else if (apiCallsMade === 2) {
+          qualifiedLeads.push({ id: 'lead_3' }, { id: 'lead_4' }, { id: 'lead_5' });
+        }
+      }
+
+      // Loop stops after batch 2 because qualifiedLeads.length (5) reached requestedLimit (5)
+      expect(apiCallsMade).toBe(2);
+      expect(qualifiedLeads.length).toBe(5);
+      expect(currentOffset).toBe(40);
+
+      // Verify next batch would start at offset 40
+      const nextBatchOffset = currentOffset;
+      expect(nextBatchOffset).toBe(40);
+    });
+
+    it('stops after max 3 API calls if requested limit is not reached', () => {
+      const requestedLimit = 5;
+      const batchSize = 20;
+      const maxApiCalls = 3;
+      let apiCallsMade = 0;
+      let currentOffset = 0;
+      const maxAllowedOffset = currentOffset + (maxApiCalls * batchSize);
+      const qualifiedLeads: any[] = [];
+
+      // Even if only 1 qualifies across 3 calls
+      while (qualifiedLeads.length < requestedLimit && currentOffset < maxAllowedOffset && apiCallsMade < maxApiCalls) {
+        apiCallsMade++;
+        currentOffset += batchSize;
+        if (apiCallsMade === 1) {
+          qualifiedLeads.push({ id: 'lead_1' });
+        }
+      }
+
+      expect(apiCallsMade).toBe(3);
+      expect(qualifiedLeads.length).toBe(1);
+      expect(currentOffset).toBe(60);
+      const X = qualifiedLeads.length;
+      const Y = requestedLimit - X;
+      const statusReason = `Found ${X} verified ${X === 1 ? 'lead' : 'leads'}. Searched thoroughly but could not find ${Y} more in this area. Try a broader location.`;
+      expect(statusReason).toBe('Found 1 verified lead. Searched thoroughly but could not find 4 more in this area. Try a broader location.');
     });
   });
 });

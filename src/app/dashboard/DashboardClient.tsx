@@ -206,6 +206,11 @@ export default function DashboardClient() {
       if (initialData.leads) {
         setIsSearching(false);
         setHasSearched(true);
+        if (typeof initialData.nextOffset === 'number') {
+          setCurrentSearchOffset(initialData.nextOffset);
+        } else {
+          setCurrentSearchOffset((criteria.offset || 0) + (criteria.limit || 5));
+        }
 
         if (isSubsequentBatch) {
           if (initialData.leads.length > 0) {
@@ -320,6 +325,11 @@ export default function DashboardClient() {
 
           setIsSearching(false);
           setHasSearched(true);
+          if (typeof resultsData.nextOffset === 'number') {
+            setCurrentSearchOffset(resultsData.nextOffset);
+          } else {
+            setCurrentSearchOffset((criteria.offset || 0) + (criteria.limit || 5));
+          }
 
           if (resultsData.success) {
             if (isSubsequentBatch) {
@@ -442,7 +452,7 @@ export default function DashboardClient() {
   const handleLoadMore = () => {
     if (isSearching) return;
     const batchLimit = Number(lastSearchCriteria?.limit || 5);
-    const nextOffset = currentSearchOffset + batchLimit;
+    const nextOffset = currentSearchOffset;
     const baseCriteria: LeadFilterCriteria = lastSearchCriteria || {
       country: 'USA',
       state: 'California',
@@ -499,6 +509,7 @@ export default function DashboardClient() {
                 onSearchStart={handleLeadSearchStart}
                 onSearchSubmit={handleLeadSearchSubmit}
                 onViewLeads={handleScrollToLeads}
+                currentOffset={currentSearchOffset}
               />
 
               {/* Dedicated Search Results Section */}

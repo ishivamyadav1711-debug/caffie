@@ -244,6 +244,8 @@ export interface SearchRequestPayload {
   requirePositiveReviewEvidence?: boolean;
   reviewSort?: ReviewSortOption;
   highNetWorthFilter?: boolean;
+  highNetWorthOnly?: boolean;
+  nextOffset?: number;
   financialFilterMode?: 'STRICT_NET_WORTH' | 'BROAD_FINANCIAL_SCALE';
 }
 

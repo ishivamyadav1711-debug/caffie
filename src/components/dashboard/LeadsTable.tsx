@@ -546,7 +546,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
             {/* Concise explanation when fewer leads qualified */}
             {leads.length < requestedLimit && (
               <span className="text-slate-400 italic text-[11.5px]">
-                ({leads.length === 0 ? 'No businesses matched your specific filters in this area.' : `${leads.length} verified ${leads.length === 1 ? 'business' : 'businesses'} qualified in this area.`})
+                ({statusReason || `Found ${leads.length} verified leads. Searched thoroughly but could not find ${requestedLimit - leads.length} more in this area. Try a broader location.`})
               </span>
             )}
 
@@ -573,9 +573,9 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
             )}
 
             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
-              searchStatus === 'COMPLETE' ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              (searchStatus === 'COMPLETE' || leads.length >= requestedLimit) ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
             }`}>
-              Status: {searchStatus || 'COMPLETE'}
+              Status: {(leads.length >= requestedLimit && searchStatus !== 'FAILED') ? 'COMPLETE' : (searchStatus || 'COMPLETE')}
             </span>
           </div>
         </div>
@@ -1024,10 +1024,12 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
         {/* State E: Results Table (Section 9 Columns) */}
         {hasSearched && !isSearching && leads.length > 0 && (
           <div className="overflow-x-auto">
-            {statusReason && statusReason.includes('₹70 Cr') && (
-              <div className="px-5 py-2.5 bg-violet-50 border-b border-violet-100 flex items-center justify-between text-[12.5px] text-violet-900 font-medium">
+            {statusReason && (
+              <div className={`px-5 py-2.5 border-b flex items-center justify-between text-[12.5px] font-medium ${
+                leads.length >= requestedLimit ? 'bg-teal-50 border-teal-100 text-teal-900' : 'bg-amber-50 border-amber-100 text-amber-900'
+              }`}>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-violet-600 shrink-0" />
+                  <CheckCircle2 className={`h-4 w-4 shrink-0 ${leads.length >= requestedLimit ? 'text-teal-600' : 'text-amber-600'}`} />
                   <span>{statusReason}</span>
                 </div>
               </div>
@@ -1419,10 +1421,10 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                 onClick={onLoadMore}
                 disabled={isSearching}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-teal-300 bg-teal-50 text-[12px] font-semibold text-teal-800 hover:bg-teal-100 transition-all btn-pressable shadow-2xs cursor-pointer disabled:opacity-50"
-                title="Fetch next batch of new leads for the same search criteria"
+                title="Find next batch of new leads for the same search criteria"
               >
                 <Sparkles className="h-3.5 w-3.5 text-teal-600" />
-                <span>Load Next Batch</span>
+                <span>Find Next Batch</span>
               </button>
             )}
 

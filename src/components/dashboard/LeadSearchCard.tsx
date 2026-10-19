@@ -51,6 +51,7 @@ interface LeadSearchCardProps {
   onSearchStart?: (isSubsequentBatch?: boolean) => void;
   onSearchSubmit?: (criteria: LeadFilterCriteria) => void;
   onViewLeads?: () => void;
+  currentOffset?: number;
 }
 
 export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
@@ -60,10 +61,17 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
   onSearchStart,
   onSearchSubmit,
   onViewLeads,
+  currentOffset: propOffset,
 }) => {
   // Offset tracking for sequential pagination
-  const [currentOffset, setCurrentOffset] = useState<number>(initialCriteria?.offset || 0);
+  const [currentOffset, setCurrentOffset] = useState<number>(propOffset ?? initialCriteria?.offset ?? 0);
   const lastCriteriaKeyRef = React.useRef<string>('');
+
+  React.useEffect(() => {
+    if (typeof propOffset === 'number') {
+      setCurrentOffset(propOffset);
+    }
+  }, [propOffset]);
 
   // 1. COUNTRY: USA, Canada, India
   const [selectedCountry, setSelectedCountry] = useState<'India' | 'USA' | 'Canada'>(
@@ -231,13 +239,12 @@ export const LeadSearchCard: React.FC<LeadSearchCardProps> = ({
 
     const currentKey = `${selectedCountry}:${selectedState}:${isAllCities ? '' : activeCity}:${activeIndustry}:${contact}:${website}:${limit}:${Boolean(highNetWorthFilter)}`;
     const isSameCriteria = lastCriteriaKeyRef.current === currentKey;
-    const nextOffset = isSameCriteria ? currentOffset + Number(limit) : 0;
+    const nextOffset = isSameCriteria ? currentOffset : 0;
 
     if (onSearchStart) {
       onSearchStart(nextOffset > 0);
     }
 
-    setCurrentOffset(nextOffset);
     lastCriteriaKeyRef.current = currentKey;
 
     const criteria: LeadFilterCriteria = {
