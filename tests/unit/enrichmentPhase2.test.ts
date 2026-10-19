@@ -16,6 +16,11 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+vi.mock('@/lib/enrichment/verify', () => ({
+  verifyEmail: vi.fn().mockResolvedValue(true),
+  verifyPhone: vi.fn().mockResolvedValue(true),
+}));
+
 describe('Enrichment Phase 2 - Work Email Waterfall & Search Modes', () => {
   const originalEnv = process.env;
 

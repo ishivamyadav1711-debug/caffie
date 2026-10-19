@@ -18,6 +18,11 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+vi.mock('@/lib/enrichment/verify', () => ({
+  verifyEmail: vi.fn().mockResolvedValue(true),
+  verifyPhone: vi.fn().mockResolvedValue(true),
+}));
+
 describe('Enrichment Phase 3 - Phone & Personal Email with Enrich.so Free Demo', () => {
   const originalEnv = process.env;
 
