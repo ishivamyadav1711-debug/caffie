@@ -1102,6 +1102,14 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                               ₹70+ Cr Net Worth
                             </span>
                           )}
+                          {lead.financialEligibility && !lead.financialEligibility.isQualified && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs"
+                              title={lead.financialEligibility.qualificationExplanation || 'Net Worth: Unverified - Public filings unavailable'}
+                            >
+                              Net Worth: Unverified
+                            </span>
+                          )}
                         </div>
                         {lead.category && (
                           <span className="text-[11px] text-[#64748B] capitalize">

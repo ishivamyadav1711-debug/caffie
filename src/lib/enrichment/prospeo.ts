@@ -41,6 +41,12 @@ export interface ProspeoPersonEnrichResult {
   linkedinUrl?: string | null;
 }
 
+function maskKey(key?: string | null): string {
+  if (!key) return '(not set)';
+  if (key.length <= 8) return '***';
+  return `${key.substring(0, 5)}...${key.substring(key.length - 3)}`;
+}
+
 /**
  * Mode A: Person Enrichment via Prospeo Enrich Person API
  * Strictly adheres to official Prospeo documentation:
@@ -60,29 +66,57 @@ export async function prospeoEnrichPerson(
     return null;
   }
 
+  const payload = {
+    only_verified_email: true,
+    enrich_mobile: enrichMobile,
+    data: {
+      first_name: firstName,
+      last_name: lastName || '',
+      company_website: domain,
+    },
+  };
+  const url = 'https://api.prospeo.io/enrich-person';
+
+  console.log(`[Prospeo] Key: ${maskKey(apiKey)}`);
+  console.log(`[Prospeo] URL: ${url}`);
+  console.log(`[Prospeo] Payload:`, JSON.stringify(payload));
+
   try {
-    const res = await fetch('https://api.prospeo.io/enrich-person', {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-KEY': apiKey,
       },
-      body: JSON.stringify({
-        only_verified_email: true,
-        enrich_mobile: enrichMobile,
-        data: {
-          first_name: firstName,
-          last_name: lastName || '',
-          company_website: domain,
-        },
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(10000),
     });
 
-    const data = await res.json().catch(() => null);
+    console.log(`[Prospeo] Status:`, res.status);
+    let data: any = null;
+    let rawResponse: string = '';
+    if (typeof res.text === 'function') {
+      try {
+        rawResponse = await res.text();
+        try {
+          data = JSON.parse(rawResponse);
+        } catch {
+          data = rawResponse;
+        }
+      } catch {
+        if (typeof res.json === 'function') {
+          data = await res.json().catch(() => null);
+          rawResponse = JSON.stringify(data);
+        }
+      }
+    } else if (typeof res.json === 'function') {
+      data = await res.json().catch(() => null);
+      rawResponse = JSON.stringify(data);
+    }
+    console.log(`[Prospeo] Response:`, typeof data === 'object' ? JSON.stringify(data) : rawResponse);
 
     if (!res.ok || data?.error === true) {
-      console.warn(`[Prospeo] Person enrich ${data?.error_code || res.status} for ${firstName} @ ${domain}`);
+      console.warn(`[Prospeo] Person enrich ${data?.error_code || res.status} for ${firstName} @ ${domain}. Details:`, JSON.stringify(data?.message || data?.error_details || rawResponse));
       return null;
     }
 
@@ -127,8 +161,8 @@ export async function prospeoEnrichPerson(
       phone: phoneResult,
       linkedinUrl,
     };
-  } catch (err) {
-    console.warn('[Prospeo] Person enrich exception:', err);
+  } catch (err: any) {
+    console.warn('[Prospeo] Person enrich exception:', err?.message || err);
     return null;
   }
 }
@@ -159,26 +193,51 @@ export async function prospeoFindDomainEmail(
     return null;
   }
 
+  const payload = {
+    data: { company_website: domain },
+  };
+  const url = 'https://api.prospeo.io/enrich-company';
+
+  console.log(`[Prospeo] Key: ${maskKey(apiKey)}`);
+  console.log(`[Prospeo] URL: ${url}`);
+  console.log(`[Prospeo] Payload:`, JSON.stringify(payload));
+
   try {
-    const res = await fetch('https://api.prospeo.io/enrich-company', {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-KEY': apiKey,
       },
-      body: JSON.stringify({
-        data: { company_website: domain },
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(8000),
     });
 
-    if (!res.ok) {
-      console.warn(`[Prospeo] Company enrich HTTP ${res.status} for domain ${domain}`);
-      return null;
+    console.log(`[Prospeo] Status:`, res.status);
+    let data: any = null;
+    let rawResponse: string = '';
+    if (typeof res.text === 'function') {
+      try {
+        rawResponse = await res.text();
+        try {
+          data = JSON.parse(rawResponse);
+        } catch {
+          data = rawResponse;
+        }
+      } catch {
+        if (typeof res.json === 'function') {
+          data = await res.json().catch(() => null);
+          rawResponse = JSON.stringify(data);
+        }
+      }
+    } else if (typeof res.json === 'function') {
+      data = await res.json().catch(() => null);
+      rawResponse = JSON.stringify(data);
     }
+    console.log(`[Prospeo] Response:`, typeof data === 'object' ? JSON.stringify(data) : rawResponse);
 
-    const data = await res.json().catch(() => null);
-    if (data?.error === true || !data?.company) {
+    if (!res.ok || data?.error === true || !data?.company) {
+      console.warn(`[Prospeo] Company enrich error: HTTP ${res.status}, error_code: ${data?.error_code || 'none'} for domain ${domain}. Details:`, JSON.stringify(data?.message || data?.error_details || rawResponse));
       return null;
     }
 
@@ -198,8 +257,8 @@ export async function prospeoFindDomainEmail(
     }
 
     return null;
-  } catch (err) {
-    console.warn('[Prospeo] Domain search exception:', err);
+  } catch (err: any) {
+    console.warn('[Prospeo] Domain search exception:', err?.message || err);
     return null;
   }
 }

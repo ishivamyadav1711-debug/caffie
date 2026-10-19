@@ -322,15 +322,20 @@ export class PublicRegistryFinancialProvider implements IFinancialEvidenceProvid
    * Fetches official Stockholders' Equity from SEC EDGAR XBRL company facts API.
    * Runs with a 5000ms timeout and AbortController.
    */
+  /**
+   * Fetches official Stockholders' Equity from SEC EDGAR XBRL company facts API.
+   * Runs with a 5000ms timeout and AbortController.
+   */
   public async fetchSecEdgarEquity(cik: string, entityName: string, matchConfidence: number): Promise<FinancialEvidenceRecord | null> {
     const paddedCik = cik.padStart(10, '0');
     const url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${paddedCik}.json`;
+    console.log(`[SEC EDGAR] Fetching equity for CIK ${paddedCik} (${entityName}) from ${url}`);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         headers: {
           'User-Agent': 'LeadPilot/1.0 (compliance@leadpilot.app)',
           'Accept': 'application/json',
@@ -338,7 +343,25 @@ export class PublicRegistryFinancialProvider implements IFinancialEvidenceProvid
         signal: controller.signal,
       });
 
+      console.log(`[SEC EDGAR] Response status: ${res.status} for CIK ${paddedCik}`);
+
+      // Handle 429 Rate Limit with backoff & retry
+      if (res.status === 429) {
+        console.warn(`[SEC EDGAR] Rate limit 429 encountered for CIK ${paddedCik}. Backing off 1500ms before retry...`);
+        await new Promise((r) => setTimeout(r, 1500));
+        res = await fetch(url, {
+          headers: {
+            'User-Agent': 'LeadPilot/1.0 (compliance@leadpilot.app)',
+            'Accept': 'application/json',
+          },
+          signal: controller.signal,
+        });
+        console.log(`[SEC EDGAR] Retry status: ${res.status} for CIK ${paddedCik}`);
+      }
+
       if (!res.ok) {
+        const errText = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+        console.log(`[SEC EDGAR] Error body (${res.status}): ${errText.substring(0, 150)}`);
         return null;
       }
 
@@ -377,6 +400,8 @@ export class PublicRegistryFinancialProvider implements IFinancialEvidenceProvid
       const filingDate = latest.filed || latest.end || '2025-12-31';
       const reportingPeriod = latest.fy ? `FY${latest.fy}` : (latest.end ? `FY${latest.end.slice(0, 4)}` : 'Annual');
 
+      console.log(`[SEC EDGAR] Successfully extracted equity for CIK ${paddedCik}: USD ${latest.val.toLocaleString()} (₹${(conv.amountInInr / 10000000).toFixed(1)} Cr INR)`);
+
       return {
         entityName: data.entityName || entityName,
         matchingConfidence: matchConfidence,
@@ -399,8 +424,8 @@ export class PublicRegistryFinancialProvider implements IFinancialEvidenceProvid
         verificationStatus: 'VERIFIED',
         notes: `Audited Stockholders' Equity from SEC EDGAR Form 10-K filing (Accession: ${latest.accn || 'Official'})`,
       };
-    } catch {
-      // Graceful timeout or transient network degradation fallback
+    } catch (err: any) {
+      console.warn(`[SEC EDGAR] Exception querying CIK ${paddedCik}: ${err?.message || err}`);
       return null;
     } finally {
       clearTimeout(timeout);
@@ -426,6 +451,7 @@ export class PublicRegistryFinancialProvider implements IFinancialEvidenceProvid
       // Strict entity matching: Require confidence >= 0.80 to attribute filings
       if (matchConfidence >= 0.80) {
         const conv = convertToInr(entry.rawAmount, entry.currency);
+        console.log(`[Financial Evidence] Curated Registry Match found: "${businessName}" -> "${entry.entityName}" (Confidence: ${Math.round(matchConfidence * 100)}%, ₹${(conv.amountInInr / 10000000).toFixed(1)} Cr INR)`);
         records.push({
           entityName: entry.entityName,
           matchingConfidence: matchConfidence,
@@ -456,6 +482,7 @@ export class PublicRegistryFinancialProvider implements IFinancialEvidenceProvid
       for (const corp of US_SEC_CORPORATE_DIRECTORY) {
         const matchConfidence = calculateEntityMatchConfidence(businessName, corp.name);
         if (matchConfidence >= 0.80) {
+          console.log(`[Financial Evidence] SEC Corporate Directory candidate match: "${businessName}" -> "${corp.name}" (CIK: ${corp.cik})`);
           const liveSecEvidence = await this.fetchSecEdgarEquity(corp.cik, corp.name, matchConfidence);
           if (liveSecEvidence) {
             records.push(liveSecEvidence);

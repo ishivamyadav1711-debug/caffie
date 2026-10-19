@@ -523,7 +523,7 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
         const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
         try {
-          const res = await fetch(url.toString(), {
+          let res = await fetch(url.toString(), {
             method: 'GET',
             headers: {
               'x-rapidapi-host': hostHeader,
@@ -533,6 +533,23 @@ export class RapidApiDiscoveryProvider implements BusinessDiscoveryProvider {
             },
             signal: controller.signal,
           });
+
+          // Handle 429 Too Many Requests with retry
+          if (res.status === 429) {
+            console.warn(`[RapidApiDiscoveryProvider] HTTP 429 Rate Limit exceeded. Backing off 2000ms before retry...`);
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            res = await fetch(url.toString(), {
+              method: 'GET',
+              headers: {
+                'x-rapidapi-host': hostHeader,
+                'x-rapidapi-key': apiKey,
+                'Accept': 'application/json',
+                'User-Agent': 'LeadPilot-Engine/2.1 (business-discovery-orchestrator)',
+              },
+              signal: controller.signal,
+            });
+            console.log(`[RapidApiDiscoveryProvider] Retry response status: ${res.status}`);
+          }
 
           clearTimeout(timeoutId);
 

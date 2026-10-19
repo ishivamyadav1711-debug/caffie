@@ -425,6 +425,8 @@ export class LeadPilotOrchestrator {
 
       job.sourceStatus = (discoveryOutput.sourceStatus as any) || (discoveryOutput.sourceComplete || cachedCandidates.length > 0 ? 'COMPLETE' : 'PARTIAL');
 
+      console.log(`[Pipeline Stage 1: Discovery] Discovered ${allCandidates.length} raw businesses | RapidAPI: ${rStats?.rawCount ?? 0} (status: ${rStats?.status ?? 'N/A'}), OSM: ${oStats?.rawCount ?? 0} (status: ${oStats?.status ?? 'N/A'}), Google Places: ${gStats?.rawCount ?? 0} (status: ${gStats?.status ?? 'N/A'})`);
+
       // Initialize initial pipeline breakdown to prevent 0 / undefined / desynchronized state on timeout
       job.pipelineBreakdown = {
         rawDiscoveredCount: job.discovered,
@@ -712,6 +714,8 @@ export class LeadPilotOrchestrator {
         20
       );
       const targetQualifiedQuota = Math.min(contactPassedCandidates.length, job.highNetWorthFilter ? hnwBudget : job.requestedLeads);
+
+      console.log(`[Pipeline Stage 2: Validation] Location/Category verified: ${businessVerificationOutput.verified.length} / ${allCandidates.length} | Deduplicated: ${deduplicationOutput.unique.length} | Contact criteria passed (${criteria.contactFilter}): ${contactPassedCandidates.length} | Target quota: ${targetQualifiedQuota} | Website filter: ${userWebsiteFilter}`);
       const evaluatedIndices = new Set<number>();
       let candidateQueueIndex = 0;
 
@@ -1141,8 +1145,8 @@ export class LeadPilotOrchestrator {
           entity.financialEligibility = financialEval;
           entity.isHighNetWorthQualified = financialEval.isQualified;
 
-          if (!financialEval.isQualified) {
-            const isInsufficient = financialEval.eligibilityState === 'INSUFFICIENT_EVIDENCE';
+          // If evidence is verified and confirms net worth is strictly BELOW threshold (< ₹70 Cr), reject it
+          if (financialEval.eligibilityState === 'NOT_QUALIFIED') {
             rejectedCandidatesList.push({
               name: b.businessName,
               category: b.category,
@@ -1152,32 +1156,42 @@ export class LeadPilotOrchestrator {
               email: b.email,
               websiteUrl: b.website,
               websiteStatus: webClass.status,
-              rejectionReason: isInsufficient ? 'INSUFFICIENT_FINANCIAL_EVIDENCE' : 'BELOW_FINANCIAL_THRESHOLD',
-              rejectionDetails: isInsufficient
-                ? 'Excluded: Reliable public financial evidence (filings/disclosures) was unavailable'
-                : `Excluded: Verified scale (${financialEval.metricLabel}) below ₹70 Cr INR threshold`,
+              rejectionReason: 'BELOW_FINANCIAL_THRESHOLD',
+              rejectionDetails: `Excluded: Verified scale (${financialEval.metricLabel}) below ₹70 Cr INR threshold`,
             });
-            if (isInsufficient) {
-              job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE = (job.rejectionReasons.INSUFFICIENT_FINANCIAL_EVIDENCE || 0) + 1;
-            } else {
-              job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD = (job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) + 1;
-            }
+            job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD = (job.rejectionReasons.BELOW_FINANCIAL_THRESHOLD || 0) + 1;
 
             logger.info({
               jobId: job.id,
               actorId: 'financial_diagnostics',
-              message: `Financial Qualification Rejected: ${b.businessName}`,
+              message: `Financial Qualification Rejected: ${b.businessName} (Below ₹70 Cr Threshold)`,
               extra: {
                 candidateName: b.businessName,
                 normalizedCountry: (b as any).country || criteria.country || 'India',
                 normalizedState: b.state,
                 normalizedCity: b.city,
                 normalizedCategory: b.category,
-                exactReason: isInsufficient ? 'INSUFFICIENT_FINANCIAL_EVIDENCE' : 'BELOW_FINANCIAL_THRESHOLD',
+                exactReason: 'BELOW_FINANCIAL_THRESHOLD',
                 details: financialEval.qualificationExplanation,
               },
             });
+            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" REJECTED: Verified below threshold (${financialEval.metricLabel})`);
             return null;
+          }
+
+          // If public financial records are missing/unknown (INSUFFICIENT_EVIDENCE),
+          // do NOT hard-fail the pipeline. Maps APIs (RapidAPI/OSM) return local businesses
+          // without SEC/MCA filings. Allow the lead to pass through marked as "Net Worth: Unverified".
+          if (financialEval.eligibilityState === 'INSUFFICIENT_EVIDENCE') {
+            entity.financialEligibility = {
+              ...financialEval,
+              metricLabel: 'Net Worth: Unverified',
+              qualificationExplanation: 'No public regulatory filings (SEC/MCA/SEDAR+) found. Net worth unverified.',
+            };
+            entity.isHighNetWorthQualified = false;
+            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" -> Public filings unknown. Passing through as "Net Worth: Unverified"`);
+          } else {
+            console.log(`[Pipeline Stage 3: Financial Filter] Candidate "${b.businessName}" QUALIFIED (≥ ₹70 Cr INR): ${financialEval.metricLabel}`);
           }
         }
 
@@ -1471,15 +1485,22 @@ export class LeadPilotOrchestrator {
       ];
 
       // Section 10 & 11: Truthful status semantics
+      const verifiedHnwCount = deliveredEntities.filter((e) => e.financialEligibility?.isQualified).length;
+      const unverifiedHnwCount = deliveredEntities.filter((e) => e.financialEligibility && !e.financialEligibility.isQualified).length;
+
       if (deliveredEntities.length >= job.requestedLeads) {
         job.sourceStatus = 'COMPLETE';
         job.statusReason = job.highNetWorthFilter
-          ? `Discovered and qualified ${deliveredEntities.length} verified High-Net-Worth businesses (Net Worth ≥ ₹70 Cr INR).`
+          ? (verifiedHnwCount > 0
+              ? `Discovered and qualified ${deliveredEntities.length} businesses (${verifiedHnwCount} verified Net Worth ≥ ₹70 Cr INR, ${unverifiedHnwCount} unverified).`
+              : `Discovered and delivered ${deliveredEntities.length} businesses (Net Worth: Unverified - public filings unavailable).`)
           : `Discovered and qualified ${deliveredEntities.length} verified leads satisfying all criteria.`;
       } else if (deliveredEntities.length > 0) {
         job.sourceStatus = 'PARTIAL';
         job.statusReason = job.highNetWorthFilter
-          ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified High-Net-Worth leads (Net Worth ≥ ₹70 Cr INR). Configured sources yielded ${deliveredEntities.length} qualified filers.`
+          ? (verifiedHnwCount > 0
+              ? `Delivered ${deliveredEntities.length} of ${job.requestedLeads} leads (${verifiedHnwCount} verified Net Worth ≥ ₹70 Cr INR, ${unverifiedHnwCount} unverified).`
+              : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} leads (Net Worth: Unverified - public filings unavailable).`)
           : `Delivered ${deliveredEntities.length} of ${job.requestedLeads} qualified leads. Configured sources yielded ${deliveredEntities.length} matching venues.`;
       } else {
         job.sourceStatus = 'NO_RESULTS';
@@ -1522,6 +1543,8 @@ export class LeadPilotOrchestrator {
             : `0 leads met the selected criteria.`;
         }
       }
+
+      console.log(`[Pipeline Stage 4: Delivery] Delivered ${deliveredEntities.length} leads to UI (Verified HNW: ${verifiedHnwCount}, Unverified HNW: ${unverifiedHnwCount}, Requested: ${job.requestedLeads}) | Status: ${job.status} | SourceStatus: ${job.sourceStatus}`);
 
       // Persist delivered leads in LeadPilot database for instant reuse & rotation (Section 12), excluding synthetic mock demo leads
       leadPilotDb.upsertLeadsBatch(deliveredEntities.filter((e) => !e.isMock));

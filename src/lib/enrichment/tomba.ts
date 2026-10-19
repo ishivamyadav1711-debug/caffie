@@ -2,6 +2,12 @@ import { normalizeEmail } from '@/utils/emailUtils';
 import { ProviderEmailResult } from './types';
 import { selectBestGenericEmail } from './prospeo';
 
+function maskKey(key?: string | null): string {
+  if (!key) return '(not set)';
+  if (key.length <= 8) return '***';
+  return `${key.substring(0, 5)}...${key.substring(key.length - 3)}`;
+}
+
 /**
  * Mode A: Person Search via Tomba Email Finder
  */
@@ -18,32 +24,62 @@ export async function tombaFindPersonEmail(
     return null;
   }
 
+  const params = new URLSearchParams({
+    domain,
+    first_name: firstName,
+    last_name: lastName || '',
+  });
+
+  const headers: Record<string, string> = {
+    'X-Tomba-Key': apiKey,
+  };
+  if (secretKey) {
+    headers['X-Tomba-Secret'] = secretKey;
+  }
+
+  const url = `https://api.tomba.io/v1/email-finder?${params.toString()}`;
+  console.log(`[Tomba] Key: ${maskKey(apiKey)}, Secret: ${maskKey(secretKey)}`);
+  console.log(`[Tomba] URL: ${url}`);
+  console.log(`[Tomba] Headers:`, JSON.stringify({
+    'X-Tomba-Key': maskKey(apiKey),
+    ...(secretKey ? { 'X-Tomba-Secret': maskKey(secretKey) } : {}),
+  }));
+
   try {
-    const params = new URLSearchParams({
-      domain,
-      first_name: firstName,
-      last_name: lastName || '',
-    });
-
-    const headers: Record<string, string> = {
-      'X-Tomba-Key': apiKey,
-    };
-    if (secretKey) {
-      headers['X-Tomba-Secret'] = secretKey;
-    }
-
-    const res = await fetch(`https://api.tomba.io/v1/email-finder?${params.toString()}`, {
+    const res = await fetch(url, {
       method: 'GET',
       headers,
       signal: AbortSignal.timeout(6000),
     });
 
+    console.log(`[Tomba] Status:`, res.status);
+    let data: any = null;
+    let rawResponse: string = '';
+    if (typeof res.text === 'function') {
+      try {
+        rawResponse = await res.text();
+        try {
+          data = JSON.parse(rawResponse);
+        } catch {
+          data = rawResponse;
+        }
+      } catch {
+        if (typeof res.json === 'function') {
+          data = await res.json().catch(() => null);
+          rawResponse = JSON.stringify(data);
+        }
+      }
+    } else if (typeof res.json === 'function') {
+      data = await res.json().catch(() => null);
+      rawResponse = JSON.stringify(data);
+    }
+    console.log(`[Tomba] Response:`, typeof data === 'object' ? JSON.stringify(data) : rawResponse);
+
     if (!res.ok) {
-      console.warn(`[Tomba] Person search HTTP ${res.status} for ${firstName} @ ${domain}`);
+      console.warn(`[Tomba] Person search HTTP ${res.status} for ${firstName} @ ${domain}. Details:`, JSON.stringify(data?.errors || data?.message || rawResponse));
       return null;
     }
 
-    const data = await res.json();
     const rawEmail = data?.data?.email || data?.email;
     const email = normalizeEmail(rawEmail);
     if (!email) return null;
@@ -58,8 +94,8 @@ export async function tombaFindPersonEmail(
       confidence,
       type: 'SPECIFIC',
     };
-  } catch (err) {
-    console.warn('[Tomba] Person search exception:', err);
+  } catch (err: any) {
+    console.warn('[Tomba] Person search exception:', err?.message || err);
     return null;
   }
 }
@@ -78,26 +114,56 @@ export async function tombaFindDomainEmail(
     return null;
   }
 
-  try {
-    const headers: Record<string, string> = {
-      'X-Tomba-Key': apiKey,
-    };
-    if (secretKey) {
-      headers['X-Tomba-Secret'] = secretKey;
-    }
+  const headers: Record<string, string> = {
+    'X-Tomba-Key': apiKey,
+  };
+  if (secretKey) {
+    headers['X-Tomba-Secret'] = secretKey;
+  }
 
-    const res = await fetch(`https://api.tomba.io/v1/domain-search?domain=${encodeURIComponent(domain)}`, {
+  const url = `https://api.tomba.io/v1/domain-search?domain=${encodeURIComponent(domain)}`;
+  console.log(`[Tomba] Key: ${maskKey(apiKey)}, Secret: ${maskKey(secretKey)}`);
+  console.log(`[Tomba] URL: ${url}`);
+  console.log(`[Tomba] Headers:`, JSON.stringify({
+    'X-Tomba-Key': maskKey(apiKey),
+    ...(secretKey ? { 'X-Tomba-Secret': maskKey(secretKey) } : {}),
+  }));
+
+  try {
+    const res = await fetch(url, {
       method: 'GET',
       headers,
       signal: AbortSignal.timeout(6000),
     });
 
+    console.log(`[Tomba] Status:`, res.status);
+    let data: any = null;
+    let rawResponse: string = '';
+    if (typeof res.text === 'function') {
+      try {
+        rawResponse = await res.text();
+        try {
+          data = JSON.parse(rawResponse);
+        } catch {
+          data = rawResponse;
+        }
+      } catch {
+        if (typeof res.json === 'function') {
+          data = await res.json().catch(() => null);
+          rawResponse = JSON.stringify(data);
+        }
+      }
+    } else if (typeof res.json === 'function') {
+      data = await res.json().catch(() => null);
+      rawResponse = JSON.stringify(data);
+    }
+    console.log(`[Tomba] Response:`, typeof data === 'object' ? JSON.stringify(data) : rawResponse);
+
     if (!res.ok) {
-      console.warn(`[Tomba] Domain search HTTP ${res.status} for domain ${domain}`);
+      console.warn(`[Tomba] Domain search HTTP ${res.status} for domain ${domain}. Details:`, JSON.stringify(data?.errors || data?.message || rawResponse));
       return null;
     }
 
-    const data = await res.json();
     const emailsList = data?.data?.emails || data?.emails || [];
     if (!Array.isArray(emailsList) || emailsList.length === 0) {
       return null;
@@ -128,8 +194,8 @@ export async function tombaFindDomainEmail(
       confidence: 0.85,
       type: 'GENERIC',
     };
-  } catch (err) {
-    console.warn('[Tomba] Domain search exception:', err);
+  } catch (err: any) {
+    console.warn('[Tomba] Domain search exception:', err?.message || err);
     return null;
   }
 }
