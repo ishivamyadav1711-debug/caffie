@@ -19,6 +19,7 @@ import { CampaignsView } from '@/components/views/CampaignsView';
 import { AIMessagesView } from '@/components/views/AIMessagesView';
 import { DemoWebsitesView } from '@/components/views/DemoWebsitesView';
 import { SettingsView } from '@/components/views/SettingsView';
+import { SocialLeadsView } from '@/components/views/SocialLeadsView';
 import { OutreachTrackerView } from '@/components/outreach/OutreachTrackerView';
 import { SenderAccountsManager } from '@/components/outreach/SenderAccountsManager';
 import { SalesAssistantDrawer } from '@/components/assistant/SalesAssistantDrawer';
@@ -626,6 +627,11 @@ export default function DashboardClient() {
           {/* SETTINGS VIEW */}
           {activeTab === 'settings' && (
             <SettingsView onShowToast={addToast} />
+          )}
+
+          {/* B2B SOCIAL AUTOMATION (HACKER NEWS & REDDIT SCRAPER) */}
+          {activeTab === 'social-leads' && (
+            <SocialLeadsView />
           )}
         </main>
       </div>

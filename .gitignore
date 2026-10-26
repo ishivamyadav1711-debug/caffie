@@ -35,3 +35,8 @@ node_modules
 !.env.example
 !.env.local.example
 scratch/
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class

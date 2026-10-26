@@ -405,7 +405,8 @@ export type NavTab =
   | 'senders'
   | 'settings' 
   | 'help'
-  | 'enrich';
+  | 'enrich'
+  | 'social-leads';
 
 export interface ToastMessage {
   id: string;

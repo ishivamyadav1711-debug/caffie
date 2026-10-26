@@ -1,0 +1,34 @@
+{
+  "analyzedAt": "2026-10-24T19:33:25.037Z",
+  "totalAnalyzed": 10,
+  "highIntentCount": 2,
+  "threshold": 70,
+  "leads": [
+    {
+      "platform": "reddit",
+      "title": "For Hire: Admin Assistant, Financial Planning Assistant (AU), Data Entry",
+      "selftext": "Hi, 22F.\n\nI am looking for a part-time job that is remote, and accommodates flexible time.\n\nCurrently working dayshift, just need to have another source of income as I am a breadwinner.\n\nBeginner in VA. (1st time) I am willing to learn and I can adapt quickly.\n\nMost of my experience is on administrative tasks, especially in Financial Planning (AU) setup. For this, I can do implementation and review preparations for clients. \n\nAlso open for Data Entry tasks, as I have experience with MS Excel, and Xplan (CRM).\n\nHoping to be paid by the hour, as well as weekday nightshifts / weekends (flexible).\n\nThank you. 🙏🏼",
+      "url": "https://www.reddit.com/r/VAjobsPH/comments/1x4x2qo/for_hire_admin_assistant_financial_planning/",
+      "created_utc": 1791899181,
+      "author": "bluesinfarfaraway",
+      "subreddit": "r/VAjobsPH",
+      "scrapedAt": "2026-10-24T19:29:42.986Z",
+      "score": 95,
+      "reason": "The post demonstrates explicit need or request for software and professional service recommendations with buying intent.",
+      "intent_category": "active_buyer"
+    },
+    {
+      "platform": "reddit",
+      "title": "CRM needs",
+      "selftext": "I'm working with a few photography mentees right now, and one of the things we're digging into is CRMs and client workflows.\n\nI've been using the same CRM for years, and while it works for me, I'm realizing that doesn't necessarily mean it's the best fit for everyone, especially photographers who need more features than I do.\n\nSo I'd love to hear what everyone is using and WHY!\n\n* What CRM are you currently using?\n* What are the features you absolutely couldn't run your business without?\n* What's missing that you wish your CRM could do?\n* Have you switched CRMs? If so, what made you leave?\n\nI'm especially curious about things like automations, questionnaires, contracts, invoicing, scheduling, and client communication.\n\nI'm a big believer that there isn't a one-size-fits-all way to run a photography business, and I'd love to be able to share different perspectives and options with my mentees rather than just recommending what I've personally used.",
+      "url": "https://www.reddit.com/r/Beginning_Photography/comments/1x4x2m5/crm_needs/",
+      "created_utc": 1791899174,
+      "author": "XOMaddsPhoto",
+      "subreddit": "r/Beginning_Photography",
+      "scrapedAt": "2026-10-24T19:29:42.986Z",
+      "score": 83,
+      "reason": "The post demonstrates explicit need or request for software and professional service recommendations with buying intent.",
+      "intent_category": "active_buyer"
+    }
+  ]
+}

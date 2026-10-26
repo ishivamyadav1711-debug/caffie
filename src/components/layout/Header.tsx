@@ -68,6 +68,10 @@ const tabTitles: Record<NavTab, { title: string; subtitle: string }> = {
     title: 'Contact Enrichment Engine',
     subtitle: 'Multi-provider waterfall enrichment for verified work emails, personal emails, and direct phone numbers.',
   },
+  'social-leads': {
+    title: 'B2B Social Automation',
+    subtitle: 'Real-time high-intent buying signals scraped from Hacker News & Reddit.',
+  },
 };
 
 export const Header: React.FC<HeaderProps> = ({

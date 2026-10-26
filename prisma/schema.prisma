@@ -777,5 +777,23 @@ model EnrichmentResult {
   @@index([expiresAt])
 }
 
+model SocialLead {
+  id               String   @id @default(cuid())
+  platform         String
+  title            String
+  selftext         String?
+  url              String   @unique
+  author           String?
+  company          String?
+  score            Int
+  intentCategory   String?
+  reason           String?
+  enrichedEmail    String?
+  enrichedProvider String?
+  enrichedPhone    String?
+  createdAt        DateTime @default(now())
+}
+
+
 
 

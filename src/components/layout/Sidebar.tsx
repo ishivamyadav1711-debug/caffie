@@ -16,7 +16,8 @@ import {
   Mail,
   Server,
   UserCheck,
-  Wand2
+  Wand2,
+  Radar
 } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { NavTab } from '@/types';
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const router = useRouter();
   const pathname = usePathname();
   const isEnrichPage = pathname === '/dashboard/enrich';
+  const isSocialLeadsPage = pathname === '/dashboard/social-leads';
 
   const sections: NavSection[] = [
     {
@@ -61,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       title: 'INTELLIGENCE',
       items: [
+        { id: 'social-leads', label: 'B2B Social Leads', icon: Radar, badge: 'Live' },
         { id: 'website-audit', label: 'Website Audit', icon: Globe2 },
         { id: 'demo-websites', label: 'Website Demos', icon: MonitorPlay },
         { id: 'ai-messages', label: 'AI Outreach', icon: Sparkles },
@@ -125,11 +128,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="space-y-0.5 pt-0.5">
               {section.items.map((item) => {
                 const Icon = item.icon;
-                const isActive = item.id === 'enrich' ? isEnrichPage : (activeTab === item.id && !isEnrichPage);
+                const isActive = 
+                  item.id === 'enrich' ? isEnrichPage :
+                  item.id === 'social-leads' ? isSocialLeadsPage :
+                  (activeTab === item.id && !isEnrichPage && !isSocialLeadsPage);
 
                 const handleClick = () => {
                   if (item.id === 'enrich') {
                     router.push('/dashboard/enrich');
+                  } else if (item.id === 'social-leads') {
+                    router.push('/dashboard/social-leads');
                   } else {
                     if (pathname !== '/dashboard') {
                       router.push('/dashboard');

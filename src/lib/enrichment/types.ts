@@ -8,7 +8,7 @@ export interface EnrichmentInput {
   company_city?: string | null;
   company_country?: string | null;
   linkedin_url?: string | null;
-  fields: ("workEmail" | "personalEmail" | "phone")[];
+  fields?: ("workEmail" | "personalEmail" | "phone")[];
 }
 
 export interface FieldEnrichmentResult {

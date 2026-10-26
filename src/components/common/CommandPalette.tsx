@@ -15,7 +15,8 @@ import {
   FileSearch, 
   Download, 
   ArrowRight,
-  Command
+  Command,
+  Radar
 } from 'lucide-react';
 import { NavTab, Lead } from '@/types';
 
@@ -93,6 +94,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     { id: 'campaigns', label: 'Go to Outreach Campaigns', icon: Send },
     { id: 'ai-messages', label: 'Go to AI Messages', icon: Sparkles },
     { id: 'demo-websites', label: 'Go to Demo Websites', icon: MonitorPlay },
+    { id: 'social-leads', label: 'Go to B2B Social Leads (Hacker News & Reddit)', icon: Radar },
     { id: 'settings', label: 'Go to Settings', icon: Settings },
   ];
 
