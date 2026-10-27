@@ -55,7 +55,7 @@ export interface RawDiscoveredBusiness {
     text?: string;
     publishTime?: string;
   }>;
-  rawTags: Record<string, any>;
+  rawTags?: Record<string, any>;
   sourceEvidence?: {
     source: string;
     sourceId: string;

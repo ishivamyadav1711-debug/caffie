@@ -583,7 +583,7 @@ describe('Experimental High-Net-Worth Business Filter (₹70 Crore INR)', () => 
 
       // Partial result (e.g. 2 of 5)
       const partialJob: any = { requestedLeads: 5, highNetWorthFilter: true };
-      const partialCount = 2;
+      const partialCount: number = 2;
       const X = partialCount;
       const Y = partialJob.requestedLeads - X;
       const partialReason = partialJob.highNetWorthFilter

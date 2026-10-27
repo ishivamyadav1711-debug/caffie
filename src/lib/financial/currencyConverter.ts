@@ -1,4 +1,5 @@
 import { DOCUMENTED_FX_RATES_TO_INR, HIGH_NET_WORTH_THRESHOLD_INR } from './types';
+export { DOCUMENTED_FX_RATES_TO_INR, DOCUMENTED_FX_RATES_TO_INR as EXCHANGE_RATES } from './types';
 
 export interface CurrencyConversionResult {
   rawAmount: number;

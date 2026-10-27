@@ -7,7 +7,7 @@ import { providerHealthService } from '@/lib/providers/ProviderHealthService';
 import { RawDiscoveredBusiness, SearchDiscoveryParams } from '@/providers/BusinessDiscoveryProvider';
 import { validateLocation } from '@/data/geographyData';
 import { leadPilotDb } from '@/db';
-import { smartRotationService } from '@/services/SmartRotationService';
+import { smartRotationService } from '@/lib/workflow/SmartRotationService';
 import { LeadEntity } from '@/models/Lead';
 import { rapidApiCircuitBreaker, googlePlacesCircuitBreaker, osmCircuitBreaker } from '@/lib/resilience/CircuitBreaker';
 import { multiSourceMergeActor } from '@/actors/MultiSourceMergeActor';
@@ -429,7 +429,7 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
     expect(mockRes.businesses[0].name).toContain('[DEMO MOCK]');
     expect(mockRes.businesses[0].confidence).toBe('DEMO_MOCK');
     expect(mockRes.businesses[0].sources).toContain('rapidapi (mock demo)');
-    expect(mockRes.businesses[0].rawTags.isMockDemo).toBe(true);
+    expect(mockRes.businesses[0].rawTags?.isMockDemo).toBe(true);
   });
 
   // 16. Mock mode produces honest demo records with null ratings, fictional RFC 2606 domains, and 555-01xx phones
@@ -524,6 +524,7 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
       sourceId: 'branch_1',
       name: 'Downtown Dental',
       businessName: 'Downtown Dental',
+      category: 'Dentist',
       address: '101 Congress Ave, Austin, TX',
       city: 'Austin',
       state: 'Texas',
@@ -542,6 +543,7 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
       sourceId: 'osm_node_101',
       name: 'Downtown Dental',
       businessName: 'Downtown Dental',
+      category: 'Dentist',
       address: '101 Congress Ave, Austin, TX',
       city: 'Austin',
       state: 'Texas',
@@ -560,6 +562,7 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
       sourceId: 'branch_2',
       name: 'Downtown Dental',
       businessName: 'Downtown Dental',
+      category: 'Dentist',
       address: '9000 Research Blvd, Austin, TX',
       city: 'Austin',
       state: 'Texas',
@@ -577,8 +580,8 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
     expect(result.data.duplicatesCount).toBe(1);
     expect(result.data.unique.length).toBe(2);
     // Distinct branch is preserved, not falsely collapsed
-    expect(result.data.unique.some(b => b.sourceId === 'branch_1')).toBe(true);
-    expect(result.data.unique.some(b => b.sourceId === 'branch_2')).toBe(true);
+    expect(result.data.unique.some((b: any) => b.sourceId === 'branch_1')).toBe(true);
+    expect(result.data.unique.some((b: any) => b.sourceId === 'branch_2')).toBe(true);
   });
 
   // 19. Outreach is strictly disabled for mock records and fictional contacts
@@ -616,7 +619,7 @@ describe('RapidAPI Primary Discovery & Modular Google Places Suite', () => {
     expect(saved.isMock).toBe(true);
     // Mock lead must NOT appear in getAllLeads
     const allLeads = leadPilotDb.getAllLeads();
-    expect(allLeads.some(l => l.id === 'mock_demo_test_entity_1')).toBe(false);
+    expect(allLeads.some((l: any) => (l.leadId || l.id) === 'mock_demo_test_entity_1')).toBe(false);
 
     // leadsDb Prisma wrapper
     const stored = await leadsDb.upsertLeadAsync(mockLead);

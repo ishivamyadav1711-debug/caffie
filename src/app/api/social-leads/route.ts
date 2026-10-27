@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
     const platform = searchParams.get('platform');
     const minScore = searchParams.get('minScore') ? parseInt(searchParams.get('minScore')!, 10) : undefined;
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 50;
+    const keyword = searchParams.get('q') || searchParams.get('keyword');
 
     const where: any = {};
     if (platform) {
@@ -14,6 +15,14 @@ export async function GET(req: NextRequest) {
     }
     if (minScore !== undefined && !isNaN(minScore)) {
       where.score = { gte: minScore };
+    }
+    if (keyword && keyword.trim()) {
+      const q = keyword.trim();
+      where.OR = [
+        { title: { contains: q, mode: 'insensitive' } },
+        { selftext: { contains: q, mode: 'insensitive' } },
+        { reason: { contains: q, mode: 'insensitive' } },
+      ];
     }
 
     const leads = await (prisma as any).socialLead.findMany({

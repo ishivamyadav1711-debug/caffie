@@ -759,7 +759,7 @@ export class PublicRegistryFinancialProvider implements IFinancialEvidenceProvid
     }
 
     if (bestMatch) {
-      console.log(`[MCA Registry Search] Matched "${companyName}" -> "${bestMatch.entityName}" (Confidence: ${Math.round(bestMatch.matchingConfidence * 100)}%)`);
+      console.log(`[MCA Registry Search] Matched "${companyName}" -> "${bestMatch.entityName}" (Confidence: ${Math.round((bestMatch.matchingConfidence ?? 0) * 100)}%)`);
     } else {
       console.log(`[MCA Registry Search] No verified MCA filing indexed for "${companyName}"`);
     }

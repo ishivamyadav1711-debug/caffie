@@ -50,8 +50,8 @@ export const DOCUMENTED_FX_RATES_TO_INR: Record<string, { rate: number; method: 
 
 export interface FinancialEvidenceRecord {
   id?: string;
-  entityName: string;
-  matchingConfidence: number; // 0.0 to 1.0
+  entityName?: string;
+  matchingConfidence?: number; // 0.0 to 1.0
   cik?: string; // SEC CIK if applicable
   metricType: FinancialMetricType;
   rawAmount: number; // Reported value
@@ -64,11 +64,11 @@ export interface FinancialEvidenceRecord {
   reportingPeriod: string; // e.g. "FY2023-24", "CY2023", "Q4 2023"
   effectiveDate?: string;
   sourceName: string; // e.g. "US SEC EDGAR 10-K / XBRL", "Ministry of Corporate Affairs (MCA)", "SEDAR+"
-  sourceUrl: string;
-  sourceTier: 'TIER_1_REGISTRY' | 'TIER_2_FILING' | 'TIER_3_PUBLIC_REPORT';
-  retrievalDate: string;
+  sourceUrl?: string;
+  sourceTier: 'TIER_1_REGISTRY' | 'TIER_2_FILING' | 'TIER_2_DISCLOSURE' | 'TIER_3_PUBLIC_REPORT';
+  retrievalDate?: string;
   evidenceDate: string;
-  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'STALE' | 'CONTRADICTORY';
+  verificationStatus?: 'VERIFIED' | 'UNVERIFIED' | 'STALE' | 'CONTRADICTORY';
   notes?: string;
 }
 
