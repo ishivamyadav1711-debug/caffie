@@ -1215,7 +1215,9 @@ describe('LEADPILOT — PRODUCTION SENDER HEALTH + 500 UNIQUE BUSINESS OUTREACH 
       senderAccountId: 's1',
       userId: 'user-1',
       idempotencyKey: 'key-temp-1',
-    });
+      businessName: 'Test Business',
+      leadId: 'lead-temp-1',
+    } as any);
 
     expect(result.success).toBe(false);
     expect(result.errorCode).toContain('RATE_LIMIT');

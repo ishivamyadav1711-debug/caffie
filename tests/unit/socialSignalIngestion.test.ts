@@ -470,7 +470,7 @@ describe('Phase 1 & Phase 1.1: Social Signal Ingestion & Hardening Suite', () =>
       await service.ingestSignals({ platforms: ['reddit'], saveToDatabase: true });
 
       expect(upsertSpy).toHaveBeenCalledTimes(1);
-      const callArgs = upsertSpy.mock.calls[0][0];
+      const callArgs = upsertSpy.mock.calls[0][0] as any;
       expect(callArgs.where).toEqual({
         sourcePlatform_sourceRecordId: {
           sourcePlatform: 'reddit',

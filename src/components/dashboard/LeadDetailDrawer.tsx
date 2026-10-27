@@ -548,7 +548,7 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
                     </div>
                     <div>
                       <span className="text-[10px] font-semibold text-slate-500 uppercase block">Entity Match Confidence</span>
-                      <span className="text-slate-800">{Math.round(lead.financialEligibility.evidence.matchingConfidence * 100)}%</span>
+                      <span className="text-slate-800">{Math.round((lead.financialEligibility.evidence.matchingConfidence ?? 0) * 100)}%</span>
                     </div>
                     <div>
                       <span className="text-[10px] font-semibold text-slate-500 uppercase block">Retrieval Date</span>

@@ -8,10 +8,10 @@ describe('GmvEvidenceValidator', () => {
   beforeAll(() => {
     validator = new GmvEvidenceValidator();
     // Mock DNS for safe testing of SSRF
-    vi.spyOn(validator as any, 'isSafeHostname').mockImplementation(async (hostname: string) => {
-      if (hostname === 'localhost' || hostname === '127.0.0.1') return false;
-      return true;
-    });
+    vi.spyOn(validator as any, 'isSafeHostname').mockImplementation(((hostname: any) => {
+      if (hostname === 'localhost' || hostname === '127.0.0.1') return Promise.resolve(false);
+      return Promise.resolve(true);
+    }) as any);
   });
 
   afterAll(() => {

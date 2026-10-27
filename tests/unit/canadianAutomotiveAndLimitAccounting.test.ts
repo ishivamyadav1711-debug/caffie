@@ -114,6 +114,7 @@ describe('Canadian Automotive Classification & Accurate Limit Accounting Regress
         {
           source: 'rapidapi',
           sourceId: 'cad_auto_1',
+          name: 'Garage Bélanger Mécanique',
           businessName: 'Garage Bélanger Mécanique',
           category: 'Atelier de réparation automobile',
           city: 'Montreal',
@@ -126,6 +127,7 @@ describe('Canadian Automotive Classification & Accurate Limit Accounting Regress
         {
           source: 'rapidapi',
           sourceId: 'cad_auto_2',
+          name: 'Laval Carrosserie & Esthétique',
           businessName: 'Laval Carrosserie & Esthétique',
           category: 'Atelier de carrosserie automobile',
           city: 'Laval',
@@ -138,6 +140,7 @@ describe('Canadian Automotive Classification & Accurate Limit Accounting Regress
         {
           source: 'rapidapi',
           sourceId: 'cad_food_1',
+          name: 'Pizzeria Della Nonna',
           businessName: 'Pizzeria Della Nonna',
           category: 'Restaurant',
           city: 'Montreal',
@@ -149,6 +152,7 @@ describe('Canadian Automotive Classification & Accurate Limit Accounting Regress
       ];
 
       const res = await businessVerificationActor.execute({
+        jobId: 'job_test_cad',
         input: {
           businesses: candidates,
           requestedIndustry: 'Automotive',

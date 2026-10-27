@@ -338,7 +338,201 @@ export class PublicRssConnector implements SocialConnector {
 
     return [];
   }
+
+  /**
+   * Parse XML content supporting both RSS 2.0 (<item>) and Atom (<entry>) returning SocialSignal[]
+   */
+  public static parseXml(
+    xmlContent: string,
+    sourceName: string,
+    feedUrl: string,
+    limit: number = 10
+  ): import('../types').SocialSignal[] {
+    const $ = cheerio.load(xmlContent, { xml: true });
+    const signals: import('../types').SocialSignal[] = [];
+
+    // 1. Try RSS 2.0 items
+    $('item').each((_, el) => {
+      if (signals.length >= limit) return false;
+      const $el = $(el);
+      const title = $el.find('title').first().text().replace(/<[^>]+>/g, '').trim();
+      const link = $el.find('link').first().text().trim() || $el.find('guid').first().text().trim();
+      const desc = $el.find('content\\:encoded').first().text() || $el.find('description').first().text() || '';
+      const cleanDesc = cheerio.load(desc).text().trim() || title;
+      const author = $el.find('dc\\:creator').first().text().trim() || $el.find('author').first().text().trim() || sourceName;
+      const pubDate = $el.find('pubDate').first().text().trim();
+
+      if (title && link) {
+        signals.push({
+          id: `rss_${Buffer.from(link).toString('base64url').slice(0, 24)}`,
+          platform: 'rss',
+          originalId: link,
+          url: link,
+          author: author || 'feed_author',
+          title,
+          text: cleanDesc || title,
+          publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+          collectedAt: new Date().toISOString(),
+          language: 'en',
+          rawMetadata: { feedUrl, sourceName },
+        });
+      }
+    });
+
+    // 2. Try Atom entries
+    if (signals.length === 0) {
+      $('entry').each((_, el) => {
+        if (signals.length >= limit) return false;
+        const $el = $(el);
+        const title = $el.find('title').first().text().replace(/<[^>]+>/g, '').trim();
+        let link = $el.find('link').attr('href') || $el.find('id').first().text().trim();
+        const content = $el.find('content').first().text() || $el.find('summary').first().text() || '';
+        const cleanContent = cheerio.load(content).text().trim() || title;
+        const author = $el.find('author name').first().text().trim() || sourceName;
+        const updated = $el.find('updated').first().text().trim() || $el.find('published').first().text().trim();
+
+        if (title && link) {
+          signals.push({
+            id: `atom_${Buffer.from(link).toString('base64url').slice(0, 24)}`,
+            platform: 'rss',
+            originalId: link,
+            url: link,
+            author: author || 'feed_author',
+            title,
+            text: cleanContent || title,
+            publishedAt: updated ? new Date(updated).toISOString() : new Date().toISOString(),
+            collectedAt: new Date().toISOString(),
+            language: 'en',
+            rawMetadata: { feedUrl, sourceName, format: 'atom' },
+          });
+        }
+      });
+    }
+
+    return signals;
+  }
+
+  /**
+   * Search across default configured feeds and dynamic topic search feed for keyword
+   */
+  public static async searchFeeds(
+    keyword: string,
+    limit: number = 10,
+    customFeeds?: { name: string; url: string; category?: string }[]
+  ): Promise<import('../types').SocialSignal[]> {
+    const feedsToQuery = [
+      ...(customFeeds && customFeeds.length > 0 ? customFeeds : [
+        { name: 'Hacker News Ask HN RSS', url: 'https://news.ycombinator.com/askrss', category: 'tech_discussion' },
+        { name: 'Reddit SaaS RSS', url: 'https://www.reddit.com/r/SaaS/new.rss', category: 'saas' },
+        { name: 'Reddit SmallBusiness RSS', url: 'https://www.reddit.com/r/smallbusiness/new.rss', category: 'small_business' },
+      ]),
+      {
+        name: 'Google News B2B Topic RSS',
+        url: `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}&hl=en-US&gl=US&ceid=US:en`,
+        category: 'topic_search',
+      },
+    ];
+
+    const lowerKeyword = keyword.toLowerCase();
+    const results = await Promise.allSettled(
+      feedsToQuery.map(async (feed) => {
+        try {
+          const res = await fetch(feed.url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; LeadPilot/1.0; +https://leadpilot.app)',
+              Accept: 'application/rss+xml, application/atom+xml, text/xml, application/xml, */*',
+            },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!res.ok) return [];
+          const xml = await res.text();
+          const $ = cheerio.load(xml, { xml: true });
+          const items: import('../types').SocialSignal[] = [];
+
+          $('item').slice(0, 15).each((_, el) => {
+            const item = $(el);
+            const title = item.find('title').first().text().replace(/<[^>]+>/g, '').trim();
+            const link = item.find('link').first().text().trim() || item.find('guid').first().text().trim();
+            const desc = item.find('content\\:encoded').first().text() || item.find('description').first().text() || '';
+            const cleanDesc = cheerio.load(desc).text().trim() || title;
+            const author = item.find('dc\\:creator').first().text().trim() || item.find('author').first().text().trim() || feed.name;
+            const pubDate = item.find('pubDate').first().text().trim();
+
+            if (title && link) {
+              items.push({
+                id: `rss_${Buffer.from(link).toString('base64url').slice(0, 24)}`,
+                platform: 'rss',
+                originalId: link,
+                url: link,
+                author: author || 'feed_author',
+                title,
+                text: cleanDesc || title,
+                publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+                collectedAt: new Date().toISOString(),
+                language: 'en',
+                rawMetadata: { feedUrl: feed.url, sourceName: feed.name },
+              });
+            }
+          });
+
+          return items;
+        } catch {
+          return [];
+        }
+      })
+    );
+
+    const allSignals: import('../types').SocialSignal[] = [];
+    const seenUrls = new Set<string>();
+
+    for (const res of results) {
+      if (res.status === 'fulfilled') {
+        for (const sig of res.value) {
+          if (!seenUrls.has(sig.url)) {
+            seenUrls.add(sig.url);
+            allSignals.push(sig);
+          }
+        }
+      }
+    }
+
+    const queryTokens = lowerKeyword.split(/\s+/).filter((t) => t.length > 2);
+    const matched = allSignals.filter((signal) => {
+      if (signal.rawMetadata?.sourceName?.includes('Topic RSS')) {
+        return true;
+      }
+      const combined = `${signal.title} ${signal.text}`.toLowerCase();
+      if (combined.includes(lowerKeyword)) return true;
+      if (queryTokens.length > 0 && queryTokens.some((t) => combined.includes(t))) return true;
+      return false;
+    });
+
+    return matched.slice(0, limit);
+  }
+
+  /**
+   * Standardized search interface matching other social connectors
+   */
+  public static async search(
+    query: string,
+    options: { limit?: number; customFeeds?: { name: string; url: string; category?: string }[] } = {}
+  ): Promise<{ signals: import('../types').SocialSignal[]; status: import('../types').ConnectorStatus; error?: string }> {
+    try {
+      const signals = await PublicRssConnector.searchFeeds(query, options.limit || 10, options.customFeeds);
+      return {
+        signals,
+        status: 'READY',
+      };
+    } catch (err: any) {
+      return {
+        signals: [],
+        status: 'ERROR',
+        error: `RSS search failed: ${err.message}`,
+      };
+    }
+  }
 }
 
 export const publicRssConnector = new PublicRssConnector();
+export { PublicRssConnector as RssFeedConnector };
 

@@ -81,7 +81,7 @@ describe('P0 Lead Discovery & Qualification Regression Suite', () => {
       expect(res.rawCount).toBe(0);
       expect(res.statusReason).toContain('Google Places authentication failed');
       expect(res.statusReason).toContain('PERMISSION_DENIED');
-      expect(res.errors[0]).toContain('HTTP 403: The caller does not have permission');
+      expect(res.errors?.[0]).toContain('HTTP 403: The caller does not have permission');
     } finally {
       global.fetch = originalFetch;
     }

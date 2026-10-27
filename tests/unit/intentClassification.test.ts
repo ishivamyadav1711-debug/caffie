@@ -417,7 +417,7 @@ describe('Phase 2 & 2.1: Buying-Intent Classification & Remediation Suite', () =
       expect(res1.success).toBe(true);
       expect(upsertSpy).toHaveBeenCalledTimes(1);
 
-      const callArgs = upsertSpy.mock.calls[0][0];
+      const callArgs = upsertSpy.mock.calls[0][0] as any;
       expect(callArgs.where).toEqual({
         signalId_classifierVersion: {
           signalId: 'test_signal_xyz_1',
