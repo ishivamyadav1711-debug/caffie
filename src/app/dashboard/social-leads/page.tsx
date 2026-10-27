@@ -16,11 +16,7 @@ export default function SocialLeadsPage() {
 
   const handleNavigateTab = (tab: NavTab) => {
     if (tab === 'social-leads') return;
-    if (tab === 'enrich') {
-      router.push('/dashboard/enrich');
-    } else {
-      router.push('/dashboard');
-    }
+    router.push('/dashboard');
   };
 
   const addToast = (

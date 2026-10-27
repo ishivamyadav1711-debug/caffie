@@ -797,3 +797,58 @@ model SocialLead {
 
 
 
+
+
+model SocialSignal {
+  id                   String    @id @default(cuid())
+  sourcePlatform       String
+  sourceRecordId       String
+  sourceUrl            String    @unique
+  authorHandle         String?
+  publicationTimestamp DateTime?
+  retrievedAt          DateTime  @default(now())
+  title                String
+  contentText          String
+  contentHash          String    @unique
+  accessMethod         String    @default("public_api")
+  collectionStatus     String    @default("SUCCESS")
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  classifications      SocialSignalClassification[]
+
+  @@unique([sourcePlatform, sourceRecordId])
+  @@index([sourcePlatform, publicationTimestamp])
+  @@index([contentHash])
+  @@index([retrievedAt])
+}
+
+model SocialSignalClassification {
+  id                   String       @id @default(cuid())
+  signalId             String
+  classifierVersion    String       @default("2.0.0")
+  primaryCategory      String
+  confidenceScore      Float
+  reviewStatus         String       @default("CONFIRMED")
+  evidenceSnippets     String[]
+  explanation          String       @db.Text
+  reasonCodes          String[]
+  skepticEvaluation    Json?
+  analystEvaluation    Json?
+  optimistEvaluation   Json?
+  evaluationStrategy   String
+  providerModel        String?
+  processingDurationMs Int?
+  classifiedAt         DateTime     @default(now())
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  signal               SocialSignal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@unique([signalId, classifierVersion])
+  @@index([primaryCategory, confidenceScore])
+  @@index([reviewStatus])
+  @@index([classifiedAt])
+}
+

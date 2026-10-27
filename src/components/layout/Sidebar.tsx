@@ -16,7 +16,6 @@ import {
   Mail,
   Server,
   UserCheck,
-  Wand2,
   Radar
 } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -48,7 +47,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const router = useRouter();
   const pathname = usePathname();
-  const isEnrichPage = pathname === '/dashboard/enrich';
   const isSocialLeadsPage = pathname === '/dashboard/social-leads';
 
   const sections: NavSection[] = [
@@ -56,7 +54,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: 'MAIN',
       items: [
         { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'enrich', label: 'Enrichment', icon: Wand2 },
         { id: 'leads', label: 'Leads', icon: Users, badge: '1.2k' },
       ],
     },
@@ -129,14 +126,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {section.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = 
-                  item.id === 'enrich' ? isEnrichPage :
                   item.id === 'social-leads' ? isSocialLeadsPage :
-                  (activeTab === item.id && !isEnrichPage && !isSocialLeadsPage);
+                  (activeTab === item.id && !isSocialLeadsPage);
 
                 const handleClick = () => {
-                  if (item.id === 'enrich') {
-                    router.push('/dashboard/enrich');
-                  } else if (item.id === 'social-leads') {
+                  if (item.id === 'social-leads') {
                     router.push('/dashboard/social-leads');
                   } else {
                     if (pathname !== '/dashboard') {
